@@ -1,3 +1,4 @@
+import React from "react";
 import { useState, useEffect } from "react";
 import AppLayout from "./app/AppLayout.jsx";
 import { platformApi } from "./platform/platformApi.js";

@@ -1,19 +1,31 @@
 # PrivacySEK Platform
 
-A front-end demo of the PrivacySEK privacy operating platform.
+A demo of the PrivacySEK privacy operating platform, with a React front end and an Express API backed by MongoDB.
 
-A clickable front-end of the PrivacySEK privacy operating platform, using sample data
-for a fictional NBFC, "Aarohan Finance". It contains no backend: every figure is sample data.
+The seeded demo data represents a fictional NBFC, "Aarohan Finance".
 
 ## Run it
 
-Requires Node.js 18 or later.
+Requires Node.js 18 or later and a running MongoDB server. By default, the backend connects
+to `mongodb://127.0.0.1:27017/privacysek`; set `MONGODB_URI` and `MONGODB_DB_NAME` to use
+another database.
 
 ```bash
 npm install
-npm run dev        # open the URL Vite prints, usually http://localhost:5173
-npm run build      # production build in dist/
+npm run migrate    # initialize demo data in MongoDB
 ```
+
+Start the backend and frontend in separate terminals:
+
+```bash
+npm run server     # backend API at http://localhost:3001
+```
+
+```bash
+npm run dev        # open http://localhost:5173
+```
+
+To create a production frontend build, run `npm run build`; output is written to `dist/`.
 
 ## Structure
 
