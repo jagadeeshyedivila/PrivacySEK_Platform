@@ -51,8 +51,17 @@ export const scannerApi = {
     });
   },
 
-  async getHistory() {
-    return await request('/api/scanner/history');
+  async getHistory(params = {}) {
+    const q = new URLSearchParams();
+    if (params.page) q.append('page', params.page);
+    if (params.pageSize || params.limit) q.append('pageSize', params.pageSize || params.limit);
+    if (params.search) q.append('search', params.search);
+    if (params.status && params.status !== 'all') q.append('status', params.status);
+    if (params.sortBy) q.append('sortBy', params.sortBy);
+    if (params.sortOrder) q.append('sortOrder', params.sortOrder);
+    if (params.paginate != null) q.append('paginate', params.paginate);
+    const qs = q.toString() ? `?${q.toString()}` : '';
+    return await request(`/api/scanner/history${qs}`);
   },
 
   async deleteScan(scanId) {

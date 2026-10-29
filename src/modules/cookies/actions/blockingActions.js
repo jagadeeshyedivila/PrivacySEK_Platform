@@ -9,6 +9,30 @@ export function registerActions(context, ACT) {
   } = context;
   const showPublishHistoryModal = renderers.banner.showPublishHistoryModal;
 
+  // Tag rules search & filter actions
+  ACT["cc-search-blocking"] = q => {
+    ui.blockingSearch = q;
+    runtime.render();
+  };
+  ACT["cc-clear-blocking-search"] = () => {
+    ui.blockingSearch = "";
+    runtime.render();
+  };
+  ACT["cc-filter-blocking-cat"] = cat => {
+    ui.blockingCategory = cat;
+    runtime.render();
+  };
+  ACT["cc-filter-blocking-status"] = st => {
+    ui.blockingStatus = st;
+    runtime.render();
+  };
+  ACT["cc-reset-blocking-filters"] = () => {
+    ui.blockingSearch = "";
+    ui.blockingCategory = "all";
+    ui.blockingStatus = "all";
+    runtime.render();
+  };
+
   // Tag rules
   ACT["cc-tag-new"] = () => {
     runtime.modal("Add Script Tag Rule", "Configure dynamic tag blocking", `

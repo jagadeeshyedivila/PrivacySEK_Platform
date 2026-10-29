@@ -9,6 +9,47 @@ export function registerActions(context, ACT) {
 
   let activePollingInterval = null;
 
+  ACT["cc-scans-search"] = q => {
+    ui.scannerHistorySearch = q;
+    ui.scannerHistoryPage = 1;
+    runtime.render();
+  };
+  ACT["cc-scans-clear-search"] = () => {
+    ui.scannerHistorySearch = "";
+    ui.scannerHistoryPage = 1;
+    runtime.render();
+  };
+  ACT["cc-scans-filter-status"] = status => {
+    ui.scannerHistoryStatus = status;
+    ui.scannerHistoryPage = 1;
+    runtime.render();
+  };
+  ACT["cc-scans-sort"] = col => {
+    if (ui.scannerHistorySortBy === col) {
+      ui.scannerHistorySortOrder = ui.scannerHistorySortOrder === "asc" ? "desc" : "asc";
+    } else {
+      ui.scannerHistorySortBy = col;
+      ui.scannerHistorySortOrder = "desc";
+    }
+    ui.scannerHistoryPage = 1;
+    runtime.render();
+  };
+  ACT["cc-scans-page"] = p => {
+    ui.scannerHistoryPage = Math.max(1, Number(p) || 1);
+    runtime.render();
+  };
+  ACT["cc-scans-page-size"] = s => {
+    ui.scannerHistoryPageSize = Math.max(1, Number(s) || 10);
+    ui.scannerHistoryPage = 1;
+    runtime.render();
+  };
+  ACT["cc-scans-reset-filters"] = () => {
+    ui.scannerHistorySearch = "";
+    ui.scannerHistoryStatus = "all";
+    ui.scannerHistoryPage = 1;
+    runtime.render();
+  };
+
   // Sync initial backend history and schedules on action registration
   (async function syncBackendData() {
     try {

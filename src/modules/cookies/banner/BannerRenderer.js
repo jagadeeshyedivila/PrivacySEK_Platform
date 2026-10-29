@@ -172,39 +172,37 @@ function renderConfigEditor() {
 /* 3.1 CONFIG SECTION */
 
 function showPublishHistoryModal() {
-  const versions = state.versions.slice().reverse();
+  const versions = (state.versions || []).slice().reverse();
   const currentVer = versions[0]?.version;
 
-  const rows = versions.map(v => `
-    <tr>
-      <td><b>v${v.version}</b> ${v.version === currentVer ? `<span class="cc-badge ok">Live</span>` : `<span class="cc-badge">Archived</span>`}</td>
-      <td>${safe(dateLabel(v.publishedAt))}</td>
-      <td>${safe(v.publishedBy || "Platform Administrator")}</td>
-      <td>${safe(v.note || "Standard configuration update")}</td>
-      <td>
-        ${v.version !== currentVer ? `<button class="btn sm" data-act="cc-restore-version" data-arg="${v.version}">Restore</button>` : `<span class="dim">Active</span>`}
-      </td>
-    </tr>
-  `).join("");
+  const cols = [
+    { key: "version", label: "Version", width: "16%" },
+    { key: "publishedAt", label: "Published Date", width: "22%" },
+    { key: "publishedBy", label: "Author", width: "22%" },
+    { key: "note", label: "Deployment Notes", width: "26%" },
+    { key: "action", label: "Action", width: "14%", align: "right" },
+  ];
+
+  const rows = versions.map(v => [
+    `<b>v${v.version}</b> ${v.version === currentVer ? `<span class="cc-badge ok" style="margin-left:4px;">Live</span>` : `<span class="cc-badge" style="margin-left:4px;">Archived</span>`}`,
+    `<span class="cell-mono" style="font-size:11.5px;color:var(--text-2);">${safe(dateLabel(v.publishedAt))}</span>`,
+    `<span class="cell-truncate" title="${safe(v.publishedBy || "Platform Administrator")}">${safe(v.publishedBy || "Platform Administrator")}</span>`,
+    `<span class="cell-truncate" style="color:var(--text-3);" title="${safe(v.note || "Standard configuration update")}">${safe(v.note || "Standard configuration update")}</span>`,
+    v.version !== currentVer ? `<button class="btn sm" data-act="cc-restore-version" data-arg="${v.version}" title="Restore this configuration to draft">Restore</button>` : `<span class="dim" style="font-size:12px;">Active</span>`,
+  ]);
 
   const body = `
-    <div class="cc-banner-history-table-wrap">
-      <table class="cc-history-table">
-        <thead>
-          <tr>
-            <th>Version</th>
-            <th>Published Date</th>
-            <th>Author</th>
-            <th>Notes</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows}
-        </tbody>
-      </table>
+    <div style="margin-bottom:8px;">
+      <span class="sub" style="font-size:12px;color:var(--text-3);">Audit timeline of all published banner iterations with one-click revision rollback.</span>
     </div>
-    <div class="cc-note">Restoring a past version creates a new working draft with that configuration.</div>
+    ${runtime.table(cols, rows, {
+      id: "cc-banner-history-table",
+      className: "cc-history-table",
+      stickyHeader: true,
+      maxHeight: "360px",
+      emptyText: "No past publications recorded.",
+    })}
+    <div class="cc-note" style="margin-top:12px;">Restoring a past version creates a new working draft with that configuration without overwriting live traffic until published.</div>
   `;
 
   runtime.modal("Banner Publication History", "Audit timeline and version rollback", body, `<button class="btn" data-act="close">Close</button>`, "drawer-wide");

@@ -28,7 +28,7 @@ var fmt = formatNumber;
 /* ---------------- navigation ---------------- */
 var S = { view:"cockpit", tab:{}, jur:"DPDP", bu:0, feedTimer:null, approvals:D.guard.approvals.slice(), dsrStep:{}, wiz:null, cats:{}, sel:{} };
 
-var { pill, tag, bar, card, kpi, table, tabs, curTab, head, btn, stl } = createMarkupHelpers({ S, esc, I });
+var { pill, tag, bar, card, kpi, table, tableToolbar, tablePagination, tableEmptyState, tableSkeleton, copyButton, tabs, curTab, head, btn, stl } = createMarkupHelpers({ S, esc, I });
 var { hash, nowT, ledgerAdd, sevPill } = createRuntimeHelpers({ D, pill });
 
 /* ---------------- overlays ---------------- */
@@ -216,7 +216,33 @@ ACT.tour = function(i){ i=+i; var t=TOUR[i]; if(t[1]) S.tab[t[0]]=t[1]; go(t[0])
   d.body.insertAdjacentHTML("beforeend",'<div class="tour" role="dialog" aria-label="Guided demo"><span class="eyebrow">Guided demo · '+(i+1)+' of '+TOUR.length+'</span><b>'+t[2]+'</b><p>'+t[3]+'</p><div class="row">'+(i>0?'<button class="btn sm" data-act="tour" data-arg="'+(i-1)+'">Back</button>':'')+'<span class="sp"></span><button class="btn sm" data-act="tourend">End</button>'+(i<TOUR.length-1?'<button class="btn sm t" data-act="tour" data-arg="'+(i+1)+'">Next</button>':'<button class="btn sm t" data-act="tourend">Finish</button>')+'</div></div>'); };
 ACT.tourend = function(){ var t=$(".tour"); if(t) t.remove(); var f=$(".tour-fab"); if(f) f.hidden=false; };
 
-var moduleRuntime = { $, D, I, S, bar, btn, card, closeOv, curTab, d, drawer, esc, fmt, head, hash, kpi, ledRow, ledgerAdd, modal, nowT, pill, render, sevPill, startClock, stl, table, tabs, tag, toast };
+ACT.copy = function(text){
+  if (!text) return;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function(){
+      toast("Copied to clipboard: " + text.slice(0, 36) + (text.length > 36 ? "…" : ""));
+    }).catch(function(){
+      toast("Copied to clipboard");
+    });
+  } else {
+    var ta = d.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    d.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try {
+      d.execCommand("copy");
+      toast("Copied to clipboard: " + text.slice(0, 36) + (text.length > 36 ? "…" : ""));
+    } catch(e) {
+      toast("Failed to copy");
+    }
+    d.body.removeChild(ta);
+  }
+};
+
+var moduleRuntime = { $, D, I, S, bar, btn, card, closeOv, copyButton, curTab, d, drawer, esc, fmt, head, hash, kpi, ledRow, ledgerAdd, modal, nowT, pill, render, sevPill, startClock, stl, table, tableEmptyState, tablePagination, tableSkeleton, tableToolbar, tabs, tag, toast };
 Object.keys(MODULE_RENDERERS).forEach(function(key){ VIEWS[key] = MODULE_RENDERERS[key](moduleRuntime); });
 Object.keys(MODULE_ACTIONS).forEach(function(key){ MODULE_ACTIONS[key](moduleRuntime, ACT, AFTER); });
 

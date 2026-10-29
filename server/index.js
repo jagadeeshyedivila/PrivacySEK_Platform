@@ -142,11 +142,11 @@ app.post('/api/scanner/scan/:id/cancel', async (req, res) => {
 });
 
 // Retrieve all scans history
-app.get('/api/scanner/history', async (_req, res) => {
+app.get('/api/scanner/history', async (req, res) => {
   try {
     const scans = await storage.getAllScans();
     // Return summaries for fast listing
-    const summaries = scans.map(s => ({
+    let summaries = scans.map(s => ({
       id: s.id,
       url: s.url,
       type: s.type,
@@ -161,6 +161,59 @@ app.get('/api/scanner/history', async (_req, res) => {
       thirdPartyCount: s.report?.thirdPartyDomains?.length ?? 0,
       resultNote: s.resultNote,
     }));
+
+    // Server-side filtering
+    if (req.query.search) {
+      const q = req.query.search.trim().toLowerCase();
+      summaries = summaries.filter(s =>
+        (s.id && s.id.toLowerCase().includes(q)) ||
+        (s.url && s.url.toLowerCase().includes(q)) ||
+        (s.type && s.type.toLowerCase().includes(q)) ||
+        (s.status && s.status.toLowerCase().includes(q))
+      );
+    }
+
+    if (req.query.status && req.query.status !== 'all') {
+      summaries = summaries.filter(s => s.status === req.query.status);
+    }
+
+    // Server-side sorting
+    const sortBy = req.query.sortBy || 'createdAt';
+    const sortOrder = req.query.sortOrder === 'asc' ? 1 : -1;
+    summaries.sort((a, b) => {
+      const valA = a[sortBy] ?? '';
+      const valB = b[sortBy] ?? '';
+      if (valA < valB) return -1 * sortOrder;
+      if (valA > valB) return 1 * sortOrder;
+      return 0;
+    });
+
+    const isPaginated = req.query.page != null || req.query.pageSize != null || req.query.limit != null || req.query.paginate === 'true';
+
+    if (isPaginated) {
+      const page = Math.max(1, parseInt(req.query.page) || 1);
+      const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize || req.query.limit) || 10));
+      const total = summaries.length;
+      const totalPages = Math.ceil(total / pageSize) || 1;
+      const skip = (page - 1) * pageSize;
+      const paginated = summaries.slice(skip, skip + pageSize);
+
+      return res.json({
+        success: true,
+        scans: paginated,
+        total,
+        page,
+        pageSize,
+        totalPages,
+        pagination: {
+          page,
+          pageSize,
+          totalRecords: total,
+          totalPages,
+        },
+      });
+    }
+
     res.json(summaries);
   } catch (err) {
     res.status(500).json({ error: err.message });

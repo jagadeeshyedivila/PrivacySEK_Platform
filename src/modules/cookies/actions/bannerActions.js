@@ -13,6 +13,11 @@ export function registerActions(context, ACT) {
   ACT["cc-top-tab"] = tab => {
     ui.topTab = tab;
     runtime.render();
+    if (tab === "records" && ACT["cc-records-page"]) {
+      ACT["cc-records-page"](ui.recordsPage || 1);
+    } else if (tab === "inventory" && ACT["cc-inventory-page"]) {
+      ACT["cc-inventory-page"](ui.inventoryPage || 1);
+    }
   };
   ACT["cc-dashboard-range"] = days => {
     ui.dashboardRange = [7, 30, 90].includes(Number(days)) ? Number(days) : 30;

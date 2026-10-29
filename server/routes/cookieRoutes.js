@@ -88,13 +88,53 @@ cookieRouter.get('/inventory', async (req, res) => {
       query.party = req.query.party;
     }
     if (req.query.search) {
+      const search = req.query.search.trim();
       query.$or = [
-        { name: { $regex: req.query.search, $options: 'i' } },
-        { domain: { $regex: req.query.search, $options: 'i' } },
-        { provider: { $regex: req.query.search, $options: 'i' } },
+        { name: { $regex: search, $options: 'i' } },
+        { domain: { $regex: search, $options: 'i' } },
+        { provider: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } },
       ];
     }
-    const cookies = await col.find(query, { projection: { _id: 0 } }).sort({ lastDetected: -1 }).toArray();
+
+    // Determine sorting
+    const sortBy = req.query.sortBy || 'lastDetected';
+    const sortOrder = req.query.sortOrder === 'asc' ? 1 : -1;
+    const sort = { [sortBy]: sortOrder };
+
+    const total = await col.countDocuments(query);
+
+    const isPaginated = req.query.page != null || req.query.pageSize != null || req.query.limit != null || req.query.paginate === 'true';
+
+    if (isPaginated) {
+      const page = Math.max(1, parseInt(req.query.page) || 1);
+      const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize || req.query.limit) || 10));
+      const skip = (page - 1) * pageSize;
+      const totalPages = Math.ceil(total / pageSize) || 1;
+
+      const cookies = await col.find(query, { projection: { _id: 0 } })
+        .sort(sort)
+        .skip(skip)
+        .limit(pageSize)
+        .toArray();
+
+      return res.json({
+        success: true,
+        cookies,
+        total,
+        page,
+        pageSize,
+        totalPages,
+        pagination: {
+          page,
+          pageSize,
+          totalRecords: total,
+          totalPages,
+        },
+      });
+    }
+
+    const cookies = await col.find(query, { projection: { _id: 0 } }).sort(sort).toArray();
     res.json(cookies);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -395,29 +435,52 @@ cookieRouter.get('/records', async (req, res) => {
   try {
     const col = await getCollection('consent_records');
     const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 100));
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.pageSize || req.query.limit) || 25));
     const skip = (page - 1) * limit;
 
     const query = {};
     if (req.query.search) {
+      const search = req.query.search.trim();
       query.$or = [
-        { id: { $regex: req.query.search, $options: 'i' } },
-        { region: { $regex: req.query.search, $options: 'i' } },
-        { action: { $regex: req.query.search, $options: 'i' } },
+        { id: { $regex: search, $options: 'i' } },
+        { region: { $regex: search, $options: 'i' } },
+        { action: { $regex: search, $options: 'i' } },
+        { property: { $regex: search, $options: 'i' } },
+        { device: { $regex: search, $options: 'i' } },
       ];
     }
+    if (req.query.region && req.query.region !== 'all') {
+      query.region = req.query.region;
+    }
+    if (req.query.action && req.query.action !== 'all') {
+      query.action = req.query.action;
+    }
+
+    const sortBy = req.query.sortBy || 'timestamp';
+    const sortOrder = req.query.sortOrder === 'asc' ? 1 : -1;
+    const sort = { [sortBy]: sortOrder };
 
     const [total, records] = await Promise.all([
       col.countDocuments(query),
-      col.find(query, { projection: { _id: 0 } }).sort({ timestamp: -1 }).skip(skip).limit(limit).toArray(),
+      col.find(query, { projection: { _id: 0 } }).sort(sort).skip(skip).limit(limit).toArray(),
     ]);
 
+    const totalPages = Math.ceil(total / limit) || 1;
+
     res.json({
+      success: true,
       records,
       total,
       page,
       limit,
-      totalPages: Math.ceil(total / limit),
+      pageSize: limit,
+      totalPages,
+      pagination: {
+        page,
+        pageSize: limit,
+        totalRecords: total,
+        totalPages,
+      },
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

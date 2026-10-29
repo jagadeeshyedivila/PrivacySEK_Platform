@@ -1,5 +1,6 @@
 import express from 'express';
 import { connectDB } from '../db.js';
+import sampleData from '../../src/data/sampleData.js';
 
 export const platformRouter = express.Router();
 
@@ -149,7 +150,8 @@ platformRouter.get('/init', async (_req, res) => {
       ai,
     });
   } catch (err) {
-    res.status(500).json({ error: `Failed to load platform data from MongoDB: ${err.message}` });
+    console.warn(`[Platform API] MongoDB unavailable (${err.message}). Serving demo dataset.`);
+    res.json(sampleData);
   }
 });
 

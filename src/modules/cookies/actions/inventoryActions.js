@@ -9,18 +9,97 @@ export function registerActions(context, ACT) {
   } = context;
   const showPublishHistoryModal = renderers.banner.showPublishHistoryModal;
 
+  const reloadInventory = async () => {
+    try {
+      ui.inventoryLoading = true;
+      runtime.render();
+      const res = await cookieApi.getInventory({
+        page: ui.inventoryPage || 1,
+        pageSize: ui.inventoryPageSize || 10,
+        search: ui.inventorySearch || "",
+        category: ui.inventoryCategory || "all",
+        party: ui.inventoryParty || "all",
+        sortBy: ui.inventorySortBy || "lastDetected",
+        sortOrder: ui.inventorySortOrder || "desc",
+        paginate: true,
+      });
+
+      if (res && res.cookies) {
+        state.inventoryCookies = res.cookies;
+        ui.inventoryTotal = res.total;
+        if (res.pagination) {
+          ui.inventoryPage = res.pagination.page;
+          ui.inventoryPageSize = res.pagination.pageSize;
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to fetch paginated inventory:", err.message);
+    } finally {
+      ui.inventoryLoading = false;
+      runtime.render();
+    }
+  };
+
   // Cookie Inventory Actions
+  let inventorySearchTimer = null;
   ACT["cc-search-inventory"] = q => {
     ui.inventorySearch = q;
+    ui.inventoryPage = 1;
+    state.inventoryCookies = null;
     runtime.render();
+    clearTimeout(inventorySearchTimer);
+    inventorySearchTimer = setTimeout(() => {
+      reloadInventory();
+    }, 250);
+  };
+  ACT["cc-clear-inventory-search"] = () => {
+    ui.inventorySearch = "";
+    ui.inventoryPage = 1;
+    state.inventoryCookies = null;
+    runtime.render();
+    reloadInventory();
   };
   ACT["cc-filter-category"] = cat => {
     ui.inventoryCategory = cat;
+    ui.inventoryPage = 1;
+    state.inventoryCookies = null;
     runtime.render();
+    reloadInventory();
   };
   ACT["cc-filter-party"] = party => {
     ui.inventoryParty = party;
+    ui.inventoryPage = 1;
+    state.inventoryCookies = null;
     runtime.render();
+    reloadInventory();
+  };
+  ACT["cc-inventory-sort"] = col => {
+    if (ui.inventorySortBy === col) {
+      ui.inventorySortOrder = ui.inventorySortOrder === "asc" ? "desc" : "asc";
+    } else {
+      ui.inventorySortBy = col;
+      ui.inventorySortOrder = "asc";
+    }
+    ui.inventoryPage = 1;
+    state.inventoryCookies = null;
+    runtime.render();
+    reloadInventory();
+  };
+  ACT["cc-inventory-page"] = p => {
+    ui.inventoryPage = Math.max(1, Number(p) || 1);
+    reloadInventory();
+  };
+  ACT["cc-inventory-page-size"] = s => {
+    ui.inventoryPageSize = Math.max(1, Number(s) || 10);
+    ui.inventoryPage = 1;
+    reloadInventory();
+  };
+  ACT["cc-inventory-reset-filters"] = () => {
+    ui.inventorySearch = "";
+    ui.inventoryCategory = "all";
+    ui.inventoryParty = "all";
+    ui.inventoryPage = 1;
+    reloadInventory();
   };
   ACT["cc-cookie-new"] = () => {
     const body = `
@@ -72,7 +151,7 @@ export function registerActions(context, ACT) {
       state.cookies.unshift(created);
       runtime.closeOv();
       runtime.toast(`Cookie ${name} added to inventory`);
-      runtime.render();
+      await reloadInventory();
     } catch (err) {
       runtime.toast(`Failed to save cookie: ${err.message}`);
     }
@@ -82,7 +161,7 @@ export function registerActions(context, ACT) {
       await cookieApi.deleteCookie(id);
       state.cookies = state.cookies.filter(c => c.id !== id);
       runtime.toast("Cookie removed from inventory");
-      runtime.render();
+      await reloadInventory();
     } catch (err) {
       runtime.toast(`Failed to delete cookie: ${err.message}`);
     }
@@ -144,7 +223,7 @@ export function registerActions(context, ACT) {
       Object.assign(cookie, updated);
       runtime.closeOv();
       runtime.toast(`Cookie ${name} updated`);
-      runtime.render();
+      await reloadInventory();
     } catch (err) {
       runtime.toast(`Failed to update cookie: ${err.message}`);
     }

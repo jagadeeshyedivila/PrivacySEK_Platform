@@ -638,6 +638,8 @@
   border-radius: 8px;
   overflow: hidden;
   background: var(--surface);
+  display: flex;
+  flex-direction: column;
 }
 
 .cc-report-table-wrapper {
@@ -659,7 +661,8 @@
   position: sticky;
   top: 0;
   z-index: 2;
-  background: #0f172a;
+  background: var(--surface);
+  box-shadow: 0 1px 0 var(--line-2);
   padding: 8px 10px;
   text-align: left;
   font-size: 10px;

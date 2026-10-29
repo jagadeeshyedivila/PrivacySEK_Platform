@@ -2,6 +2,7 @@ import React from "react";
 import { useState, useEffect } from "react";
 import AppLayout from "./app/AppLayout.jsx";
 import { platformApi } from "./platform/platformApi.js";
+import sampleData from "./data/sampleData.js";
 
 export default function App() {
   const [data, setData] = useState(null);
@@ -18,7 +19,14 @@ export default function App() {
       }
       setData(initData);
     } catch (err) {
-      console.error("[PrivacySEK] App initialization failed:", err);
+      console.warn("[PrivacySEK] Backend initialization failed:", err);
+      // If deployed to cloud (e.g. Vercel) and backend is not yet reachable, automatically boot demo dataset
+      const isRemote = typeof window !== 'undefined' && !['localhost', '127.0.0.1'].includes(window.location.hostname);
+      if (isRemote) {
+        console.info("[PrivacySEK] Cloud demo mode active: running with comprehensive sample data.");
+        setData(sampleData);
+        return;
+      }
       setError(err.message || "Failed to connect to backend server / MongoDB.");
     } finally {
       setLoading(false);
@@ -110,21 +118,38 @@ export default function App() {
             Ensure your local MongoDB instance is active on <code>mongodb://127.0.0.1:27017</code> and start the backend service:
             <br /><code style={{ display: "block", marginTop: "6px", color: "#A7F3D0" }}>npm run server</code>
           </p>
-          <button
-            onClick={loadData}
-            style={{
-              background: "#14B8A6",
-              color: "#042F2E",
-              fontWeight: "600",
-              border: "none",
-              borderRadius: "8px",
-              padding: "10px 20px",
-              cursor: "pointer",
-              fontSize: "14px"
-            }}
-          >
-            Retry Connection
-          </button>
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+            <button
+              onClick={() => { setData(sampleData); setError(null); }}
+              style={{
+                background: "#14B8A6",
+                color: "#042F2E",
+                fontWeight: "600",
+                border: "none",
+                borderRadius: "8px",
+                padding: "10px 20px",
+                cursor: "pointer",
+                fontSize: "14px"
+              }}
+            >
+              Continue in Demo Mode
+            </button>
+            <button
+              onClick={loadData}
+              style={{
+                background: "#1F2937",
+                color: "#F3F4F6",
+                fontWeight: "600",
+                border: "1px solid #374151",
+                borderRadius: "8px",
+                padding: "10px 20px",
+                cursor: "pointer",
+                fontSize: "14px"
+              }}
+            >
+              Retry Connection
+            </button>
+          </div>
         </div>
       </div>
     );

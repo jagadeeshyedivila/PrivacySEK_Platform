@@ -2,46 +2,124 @@ export function createRenderer(context) {
   const { state, runtime, ui, safe, dateLabel } = context;
 
   function renderCookieScannerModule() {
-    const scans = (state.scans || []).slice().sort((a, b) =>
-      new Date(b.createdAt || 0) - new Date(a.createdAt || 0)
-    );
-    const latestScan = scans[0];
-    const runningScan = scans.find(item => item.status === "Running");
+    const rawScans = (state.scans || []).slice();
+    const latestScan = rawScans.slice().sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))[0];
+    const runningScan = rawScans.find(item => item.status === "Running");
     const schedules = state.schedules || [];
 
-    const scanRows = scans.map(item => [
-      `<span class="cc-scan-id">${safe(item.id)}</span>`,
-      `<span class="cc-scan-url">${safe(item.url || item.urls?.[0] || "—")}</span>`,
-      safe(item.type),
-      safe(dateLabel(item.createdAt)),
-      safe(item.completedAt ? dateLabel(item.completedAt) : item.status === "Running" ? "In progress" : "—"),
-      runtime.pill(
-        item.status === "Completed" ? "ok" : item.status === "Running" ? "info" : item.status === "Cancelled" ? "n" : "risk",
-        item.status === "Completed" ? "Scan complete" : item.status === "Running" ? "Crawling" : item.status
-      ),
-      `<b>${item.report?.totalCookies ?? item.cookiesCount ?? "—"}</b>`,
-      `<b>${item.report?.thirdPartyDomains?.length ?? item.thirdPartyCount ?? "—"}</b>`,
-      `${item.pagesScanned ?? 0} / ${item.pagesAttempted ?? (item.type === "Deep Scan" ? 25 : 10)}`,
-      `
-        <div style="display:flex;gap:4px;flex-wrap:wrap;">
-          <button class="btn sm" data-act="cc-view-scan-report" data-arg="${safe(item.id)}" title="View complete report and discovered cookies">Report</button>
-          <button class="btn sm" data-act="cc-compare-scans-modal" data-arg="${safe(item.id)}" title="Compare with another scan">Compare</button>
-          <button class="btn sm d" data-act="cc-delete-scan" data-arg="${safe(item.id)}" title="Remove scan record">×</button>
-        </div>
-      `,
-    ]);
+    // Filter scans
+    const scanSearch = (ui.scannerHistorySearch || "").toLowerCase().trim();
+    const scanStatus = ui.scannerHistoryStatus || "all";
+    const sortBy = ui.scannerHistorySortBy || "createdAt";
+    const sortOrder = ui.scannerHistorySortOrder || "desc";
 
-    const scheduleRows = schedules.map(schedule => [
-      `<b>${safe(schedule.type)}</b><span class="sub" style="display:block;font-size:10px;color:var(--text-3);">${safe(schedule.urls?.length > 1 ? `${schedule.urls.length} URLs` : schedule.url)}</span>`,
-      safe(schedule.frequency),
-      safe(schedule.nextRunAt ? dateLabel(schedule.nextRunAt) : "—"),
-      `Up to ${Number(schedule.pages) || 10} pages`,
-      schedule.lastRunStatus ? runtime.pill(schedule.lastRunStatus.startsWith("Running") ? "info" : "ok", schedule.lastRunStatus) : "—",
-      `
-        <button class="btn sm" data-act="cc-run-scheduled-scan" data-arg="${safe(schedule.id)}" ${runningScan ? "disabled" : ""}>Run Now</button>
-        <button class="btn sm d" data-act="cc-delete-scan-schedule" data-arg="${safe(schedule.id)}">Remove</button>
-      `,
-    ]);
+    let filteredScans = rawScans.filter(item => {
+      const matchSearch = !scanSearch || `${item.id || ''} ${item.url || ''} ${item.type || ''}`.toLowerCase().includes(scanSearch);
+      const matchStatus = scanStatus === "all" || item.status === scanStatus;
+      return matchSearch && matchStatus;
+    });
+
+    filteredScans.sort((a, b) => {
+      let valA = a[sortBy] ?? '';
+      let valB = b[sortBy] ?? '';
+      if (typeof valA === 'string') valA = valA.toLowerCase();
+      if (typeof valB === 'string') valB = valB.toLowerCase();
+      if (valA < valB) return sortOrder === "asc" ? -1 : 1;
+      if (valA > valB) return sortOrder === "asc" ? 1 : -1;
+      return 0;
+    });
+
+    const totalScans = filteredScans.length;
+    const scansPageSize = ui.scannerHistoryPageSize || 10;
+    const totalScanPages = Math.max(1, Math.ceil(totalScans / scansPageSize));
+    const currentScanPage = Math.min(totalScanPages, Math.max(1, ui.scannerHistoryPage || 1));
+
+    const pagedScans = filteredScans.slice((currentScanPage - 1) * scansPageSize, currentScanPage * scansPageSize);
+
+    const scanCols = [
+      { key: "id", label: "Scan ID", width: "16%", sortable: true },
+      { key: "url", label: "Target Website", width: "22%", sortable: true },
+      { key: "type", label: "Scan Type", width: "12%", sortable: true },
+      { key: "createdAt", label: "Started", width: "14%", sortable: true },
+      { key: "status", label: "Status", width: "10%", sortable: true },
+      { key: "cookiesCount", label: "Cookies", width: "8%", align: "right", sortable: true },
+      { key: "thirdPartyCount", label: "Trackers", width: "8%", align: "right", sortable: true },
+      { key: "actions", label: "Actions", width: "10%", align: "right" },
+    ];
+
+    const scanRows = pagedScans.map(item => {
+      const copyIdBtn = runtime.copyButton ? runtime.copyButton(item.id, `Copy scan ID: ${item.id}`) : '';
+      const copyUrlBtn = runtime.copyButton && item.url ? runtime.copyButton(item.url, `Copy target URL: ${item.url}`) : '';
+      const targetUrl = item.url || item.urls?.[0] || "—";
+
+      return [
+        `
+          <div style="display:flex;align-items:center;gap:6px;max-width:100%;">
+            <span class="cell-mono cell-truncate" style="font-size:11.5px;color:var(--text-3);" title="${safe(item.id)}">${safe(item.id)}</span>
+            ${copyIdBtn}
+          </div>
+        `,
+        `
+          <div style="display:flex;align-items:center;gap:6px;max-width:100%;">
+            <b class="cell-mono cell-truncate" style="font-size:12px;" title="${safe(targetUrl)}">${safe(targetUrl)}</b>
+            ${copyUrlBtn}
+          </div>
+        `,
+        safe(item.type),
+        `<span class="cell-mono" style="font-size:11px;color:var(--text-2);">${safe(dateLabel(item.createdAt))}</span>`,
+        runtime.pill(
+          item.status === "Completed" ? "ok" : item.status === "Running" ? "info" : item.status === "Cancelled" ? "n" : "risk",
+          item.status === "Completed" ? "Scan complete" : item.status === "Running" ? "Crawling" : item.status
+        ),
+        `<b>${item.report?.totalCookies ?? item.cookiesCount ?? 0}</b>`,
+        `<b>${item.report?.thirdPartyDomains?.length ?? item.thirdPartyCount ?? 0}</b>`,
+        `
+          <div style="display:flex;gap:4px;justify-content:flex-end;flex-wrap:wrap;">
+            <button class="btn sm" data-act="cc-view-scan-report" data-arg="${safe(item.id)}" title="View complete report and discovered cookies">Report</button>
+            <button class="btn sm" data-act="cc-compare-scans-modal" data-arg="${safe(item.id)}" title="Compare with another scan">Compare</button>
+            <button class="btn sm d" data-act="cc-delete-scan" data-arg="${safe(item.id)}" title="Remove scan record">×</button>
+          </div>
+        `,
+      ];
+    });
+
+    const scheduleCols = [
+      { key: "type", label: "Scan Type & Target", width: "35%" },
+      { key: "frequency", label: "Frequency", width: "15%" },
+      { key: "nextRun", label: "Next Run", width: "18%" },
+      { key: "pages", label: "Page Scope", width: "14%" },
+      { key: "status", label: "Last Status", width: "10%" },
+      { key: "actions", label: "Actions", width: "8%", align: "right" },
+    ];
+
+    const scheduleRows = schedules.map(schedule => {
+      const target = schedule.urls?.length > 1 ? `${schedule.urls.length} URLs` : schedule.url;
+      const copyUrlBtn = runtime.copyButton && schedule.url ? runtime.copyButton(schedule.url, `Copy target URL: ${schedule.url}`) : '';
+
+      return [
+        `
+          <div>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <b>${safe(schedule.type)}</b>
+              ${copyUrlBtn}
+            </div>
+            <span class="sub cell-mono" style="display:block;font-size:11px;color:var(--text-3);margin-top:2px;">
+              ${safe(target)}
+            </span>
+          </div>
+        `,
+        safe(schedule.frequency),
+        safe(schedule.nextRunAt ? dateLabel(schedule.nextRunAt) : "—"),
+        `Up to ${Number(schedule.pages) || 10} pages`,
+        schedule.lastRunStatus ? runtime.pill(schedule.lastRunStatus.startsWith("Running") ? "info" : "ok", schedule.lastRunStatus) : "—",
+        `
+          <div style="display:flex;gap:4px;justify-content:flex-end;">
+            <button class="btn sm" data-act="cc-run-scheduled-scan" data-arg="${safe(schedule.id)}" ${runningScan ? "disabled" : ""}>Run Now</button>
+            <button class="btn sm d" data-act="cc-delete-scan-schedule" data-arg="${safe(schedule.id)}">Remove</button>
+          </div>
+        `,
+      ];
+    });
 
     return `
       <section class="cc-scan-page">
@@ -177,20 +255,61 @@ export function createRenderer(context) {
         </div>
 
         ${runtime.card("Saved Automated Schedules", schedules.length
-          ? runtime.table(["Scan Type & Target", "Frequency", "Next Run", "Page Scope", "Last Status", "Actions"], scheduleRows)
+          ? runtime.table(scheduleCols, scheduleRows, {
+              id: "cc-schedules-table",
+              stickyHeader: true,
+            })
           : `<div class="cc-scan-empty">No recurring schedules configured. Use Custom Scan / Schedule to create automated audits.</div>`, null, true)}
 
-        ${runtime.card("Website Scans History", scans.length
-          ? `
-            <div class="cc-scan-history-note">
-              Real website crawl telemetry stored in backend database. Click "Report" to review observed cookies or "Compare" to audit cookie additions and removals.
-            </div>
-            ${runtime.table([
-              "Scan ID", "Target Website", "Scan Type", "Started", "Finished",
-              "Status", "Discovered Cookies", "Third-Party Domains", "Pages Crawled", "Actions"
-            ], scanRows)}
-          `
-          : `<div class="cc-scan-empty">No scan history recorded yet.</div>`, null, true)}
+        ${runtime.card("Website Scans History", `
+          <div class="cc-scan-history-note" style="margin-bottom:12px;">
+            Real website crawl telemetry stored in backend database. Click "Report" to review observed cookies or "Compare" to audit cookie additions and removals.
+          </div>
+          ${runtime.tableToolbar ? runtime.tableToolbar({
+            badge: `${totalScans} Scan Records`,
+            search: {
+              value: ui.scannerHistorySearch || "",
+              placeholder: "Search scan ID, URL, type...",
+              inputAct: "cc-scans-search",
+              clearAct: "cc-scans-clear-search",
+            },
+            filters: [
+              {
+                label: "Status",
+                act: "cc-scans-filter-status",
+                value: scanStatus,
+                options: [
+                  { value: "all", label: "All Statuses" },
+                  { value: "Completed", label: "Scan complete" },
+                  { value: "Running", label: "Crawling" },
+                  { value: "Failed", label: "Failed" },
+                  { value: "Cancelled", label: "Cancelled" },
+                ],
+              },
+            ],
+          }) : ''}
+          ${runtime.table(scanCols, scanRows, {
+            id: "cc-scans-history-table",
+            sortField: sortBy,
+            sortDir: sortOrder,
+            sortAct: "cc-scans-sort",
+            stickyHeader: true,
+            emptyText: scanSearch || scanStatus !== "all" ? "No scans match your search or filter" : "No scan history recorded yet",
+            emptyResetAct: "cc-scans-reset-filters",
+          })}
+          ${runtime.tablePagination ? runtime.tablePagination({
+            page: currentScanPage,
+            pageSize: scansPageSize,
+            totalRecords: totalScans,
+            totalPages: totalScanPages,
+          }, {
+            pageAct: "cc-scans-page",
+            sizeAct: "cc-scans-page-size",
+            table: "scans",
+            unit: "scans",
+            sizes: [10, 25, 50],
+          }) : ''}
+        `, null, true)}
       </section>
     `;
   }

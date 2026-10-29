@@ -30,9 +30,14 @@ export const cookieApi = {
   // Inventory
   async getInventory(filters = {}) {
     const params = new URLSearchParams();
-    if (filters.category) params.append('category', filters.category);
-    if (filters.party) params.append('party', filters.party);
+    if (filters.category && filters.category !== 'all') params.append('category', filters.category);
+    if (filters.party && filters.party !== 'all') params.append('party', filters.party);
     if (filters.search) params.append('search', filters.search);
+    if (filters.page) params.append('page', filters.page);
+    if (filters.pageSize || filters.limit) params.append('pageSize', filters.pageSize || filters.limit);
+    if (filters.sortBy) params.append('sortBy', filters.sortBy);
+    if (filters.sortOrder) params.append('sortOrder', filters.sortOrder);
+    if (filters.paginate != null) params.append('paginate', filters.paginate);
     const qs = params.toString() ? `?${params.toString()}` : '';
     return await request(`/api/cookies/inventory${qs}`);
   },
