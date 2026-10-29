@@ -463,8 +463,11 @@
 /* SCAN REPORT MODAL & TABLE OPTIMIZATIONS                                   */
 /* ========================================================================= */
 
-.modal.drawer-wide {
-  width: min(940px, calc(100% - 32px));
+.modal.drawer-wide:has(.cc-report-modal) {
+  width: calc(100vw - 32px) !important;
+  max-width: calc(100vw - 32px) !important;
+  margin-left: 16px;
+  margin-right: 16px;
 }
 
 .cc-report-modal {
