@@ -1,0 +1,45 @@
+export const TOP_TABS = [
+  ["builder", "Banner Configuration"],
+  ["scanner", "Cookie Scanner"],
+  ["inventory", "Cookie Categories"],
+  ["install", "Implementation"],
+  ["blocking", "Auto Cookie Blocking"],
+  ["records", "Consent Records"],
+  ["dashboard", "Overview & Analytics"],
+];
+
+export const CONFIG_NAV_SECTIONS = [
+  ["config", "Config", "gear"],
+  ["language", "Language", "globe"],
+  ["content", "Content", "doc"],
+  ["layout", "Layout", "layout"],
+  ["purposes", "Purposes", "shield"],
+  ["frequency", "Display Frequency", "clock"],
+  ["vendors", "Vendors", "truck"],
+];
+
+export const REGIONS = ["EEA & UK", "USA", "India", "Global"];
+
+export function createCookieUiState() {
+  return {
+    topTab: "builder",
+    builderSection: "config",
+    region: "EEA & UK",
+    previewMode: "banner",
+    device: "Desktop",
+    contentSub: "banner",
+    vendorSub: "iab",
+    vendorSearch: "",
+    inventorySearch: "",
+    inventoryCategory: "all",
+    inventoryParty: "all",
+    inventoryPage: 1,
+    scannerSub: "scan",
+    blockingSub: "blocked",
+    recordsSub: "receipts",
+    installSub: "snippet",
+    installCmpTab: "html",
+    dashboardRange: 30,
+    dashboardRegion: "all",
+  };
+}
