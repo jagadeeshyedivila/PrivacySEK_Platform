@@ -28,6 +28,8 @@ npm run dev        # open http://localhost:5173
 For an existing database missing its demo data, run `npm run migrate` and restart the backend.
 
 To create a production frontend build, run `npm run build`; output is written to `dist/`.
+Production deployments must install production dependencies, including Playwright. If Chromium
+is unavailable on the host, the scanner switches to its multi-page HTTP crawler.
 
 ## Structure
 

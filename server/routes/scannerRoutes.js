@@ -5,15 +5,18 @@ import { connectDB } from '../db.js';
 
 export const scannerRouter = express.Router();
 
-let ScannerService = null;
-(async () => {
-  try {
-    const mod = await import('../scanner.js');
-    ScannerService = mod.ScannerService;
-  } catch (err) {
-    console.warn('[Scanner Router] Native Playwright scanner not available:', err.message);
+let scannerServicePromise;
+function getScannerService() {
+  if (!scannerServicePromise) {
+    scannerServicePromise = import('../scanner.js')
+      .then(mod => mod.ScannerService)
+      .catch(err => {
+        scannerServicePromise = null;
+        throw err;
+      });
   }
-})();
+  return scannerServicePromise;
+}
 
 // Health Check
 scannerRouter.get('/health', async (_req, res) => {
@@ -55,53 +58,33 @@ scannerRouter.post('/scan', async (req, res) => {
       return res.status(400).json({ error: 'Target website URL is required.' });
     }
 
-    if (ScannerService) {
-      const scanRecord = await ScannerService.startScan({
-        url,
-        type,
-        maxPages: Number(maxPages) || 10,
-        maxDepth: Number(maxDepth) || 2,
-        additionalUrls: Array.isArray(additionalUrls) ? additionalUrls : [],
-        includePaths: Array.isArray(includePaths) ? includePaths : [],
-        excludePaths: Array.isArray(excludePaths) ? excludePaths : [],
-        maxDurationSec: Number(maxDurationSec) || 120,
-        allowLocalhost: Boolean(allowLocalhost),
-      });
-
-      return res.status(201).json({
-        success: true,
-        message: `${type} initiated successfully`,
-        scan: scanRecord,
+    let ScannerService;
+    try {
+      ScannerService = await getScannerService();
+    } catch (err) {
+      console.error('[Scanner Router] Could not load scanner service:', err);
+      return res.status(503).json({
+        success: false,
+        error: 'The scanner service is unavailable. Check the production dependency installation and backend logs.',
       });
     }
 
-    // Cloud / serverless fallback if Playwright is unavailable
-    const fallbackScan = {
-      id: `scan-${Date.now()}`,
+    const scanRecord = await ScannerService.startScan({
       url,
       type,
-      status: 'Completed',
-      pagesScanned: 1,
-      pagesAttempted: 1,
-      pagesFailed: 0,
-      createdAt: new Date().toISOString(),
-      completedAt: new Date().toISOString(),
-      report: {
-        totalCookies: 4,
-        unclassifiedCount: 0,
-        thirdPartyDomains: ['google-analytics.com'],
-        cookies: [
-          { name: '_ga', domain: new URL(url).hostname, category: 'analytics', provider: 'Google', confidence: 'high', party: 'Third-party', secure: true, httpOnly: false },
-          { name: 'session_id', domain: new URL(url).hostname, category: 'necessary', provider: 'Internal', confidence: 'high', party: 'First-party', secure: true, httpOnly: true },
-        ],
-        trackersDetected: [],
-      },
-    };
-    await storage.saveScan(fallbackScan);
+      maxPages: Number(maxPages) || 10,
+      maxDepth: Number(maxDepth) || 2,
+      additionalUrls: Array.isArray(additionalUrls) ? additionalUrls : [],
+      includePaths: Array.isArray(includePaths) ? includePaths : [],
+      excludePaths: Array.isArray(excludePaths) ? excludePaths : [],
+      maxDurationSec: Number(maxDurationSec) || 120,
+      allowLocalhost: Boolean(allowLocalhost),
+    });
+
     return res.status(201).json({
       success: true,
-      message: `${type} completed (cloud demo mode)`,
-      scan: fallbackScan,
+      message: `${type} initiated successfully`,
+      scan: scanRecord,
     });
   } catch (err) {
     res.status(400).json({
@@ -154,14 +137,12 @@ scannerRouter.get('/scan/:id/report', async (req, res) => {
 // Cancel a running scan
 scannerRouter.post('/scan/:id/cancel', async (req, res) => {
   try {
-    if (ScannerService) {
-      const cancelled = await ScannerService.cancelScan(req.params.id);
-      if (!cancelled) {
-        return res.status(404).json({ error: 'Scan not found or already terminated.' });
-      }
-      return res.json({ success: true, message: 'Scan cancelled.', scan: cancelled });
+    const ScannerService = await getScannerService();
+    const cancelled = await ScannerService.cancelScan(req.params.id);
+    if (!cancelled) {
+      return res.status(404).json({ error: 'Scan not found or already terminated.' });
     }
-    res.json({ success: true, message: 'Scan cancelled.' });
+    return res.json({ success: true, message: 'Scan cancelled.', scan: cancelled });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -348,25 +329,14 @@ scannerRouter.post('/schedules/:id/run', async (req, res) => {
       return res.status(404).json({ error: 'Schedule not found.' });
     }
 
-    let scan = null;
-    if (ScannerService) {
-      scan = await ScannerService.startScan({
-        url: schedule.url,
-        type: schedule.type || 'Custom Scan',
-        maxPages: schedule.pages || 10,
-        additionalUrls: schedule.urls || [],
-        allowLocalhost: schedule.allowLocalhost || false,
-      });
-    } else {
-      scan = {
-        id: `scan-${Date.now()}`,
-        url: schedule.url,
-        type: schedule.type || 'Custom Scan',
-        status: 'Completed',
-        createdAt: new Date().toISOString(),
-      };
-      await storage.saveScan(scan);
-    }
+    const ScannerService = await getScannerService();
+    const scan = await ScannerService.startScan({
+      url: schedule.url,
+      type: schedule.type || 'Custom Scan',
+      maxPages: schedule.pages || 10,
+      additionalUrls: schedule.urls || [],
+      allowLocalhost: schedule.allowLocalhost || false,
+    });
 
     schedule.lastRunAt = new Date().toISOString();
     schedule.lastRunStatus = 'Running';
