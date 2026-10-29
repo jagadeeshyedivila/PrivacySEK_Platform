@@ -669,170 +669,241 @@ export class ScannerService {
    * Lightweight HTTP/DOM scanner fallback for serverless cloud environments
    * where native Playwright Chromium binary is not pre-installed.
    */
+  /**
+   * Lightweight multi-page HTTP/DOM scanner fallback for serverless cloud environments
+   * where native Playwright Chromium binary is not pre-installed.
+   * Full breadth-first crawl supporting Quick Scan, Deep Scan, Custom Scan, and Scheduled Scans.
+   */
   static async _executeHttpFallbackScan(scanId, controller, opts) {
     const {
       targetUrl,
       initialUrl,
       targetOrigin,
-      type,
+      seeds = [targetUrl],
+      type = 'Custom Scan',
+      maxPages = 10,
+      includePaths = [],
+      excludePaths = [],
       redirectInfo = {},
     } = opts;
 
     const record = controller.record;
     record.status = 'running';
-    record.progress = 25;
-    record.progressLabel = 'Crawling destination via HTTP header & DOM scanner...';
+    record.progress = 10;
+    record.progressLabel = `Starting ${type} on ${targetUrl}...`;
     await storage.saveScan(record);
 
     const startTime = Date.now();
     const discoveredCookiesMap = new Map();
     const observedThirdPartyDomains = new Set();
     const trackerTelemetry = [];
+    const visitedPages = new Set();
+    const failedPages = [];
 
-    let html = '';
-    let responseCookies = [];
+    const effectiveMaxPages = type === 'Deep Scan'
+      ? Math.max(5, Math.min(maxPages || 25, 50))
+      : Math.max(1, Math.min(maxPages || 10, 50));
 
-    try {
-      const res = await fetch(targetUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36 PrivacySEK-Scanner/1.0',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        },
-        redirect: 'follow',
-      });
-
-      if (typeof res.headers.getSetCookie === 'function') {
-        responseCookies = res.headers.getSetCookie();
-      } else {
-        const raw = res.headers.get('set-cookie');
-        if (raw) responseCookies = [raw];
-      }
-
-      html = await res.text();
-    } catch (fetchErr) {
-      console.warn(`[HTTP Crawler] Direct fetch to ${targetUrl} had issue:`, fetchErr.message);
-    }
-
-    record.progress = 65;
-    record.progressLabel = 'Classifying cookies and detecting third-party trackers...';
-    await storage.saveScan(record);
-
+    const pageQueue = Array.isArray(seeds) && seeds.length ? [...seeds] : [targetUrl];
     const targetHost = new URL(targetUrl).hostname;
+    let bannerDetected = false;
 
-    // 1. Process Set-Cookie headers
-    for (const rawCookie of responseCookies) {
-      const parts = rawCookie.split(';').map(p => p.trim());
-      const [nameVal, ...attrs] = parts;
-      const eqIdx = nameVal.indexOf('=');
-      const name = eqIdx > 0 ? nameVal.slice(0, eqIdx) : nameVal;
-      let domain = targetHost;
-      let path = '/';
-      let secure = false;
-      let httpOnly = false;
-      let sameSite = 'Lax';
+    // Helper to crawl a single page via HTTP
+    const crawlPage = async (pageUrl) => {
+      if (visitedPages.has(pageUrl) || visitedPages.size >= effectiveMaxPages || controller.cancelled) return;
+      visitedPages.add(pageUrl);
 
-      for (const attr of attrs) {
-        const lower = attr.toLowerCase();
-        if (lower.startsWith('domain=')) domain = attr.slice(7);
-        else if (lower.startsWith('path=')) path = attr.slice(5);
-        else if (lower === 'secure') secure = true;
-        else if (lower === 'httponly') httpOnly = true;
-        else if (lower.startsWith('samesite=')) sameSite = attr.slice(9);
-      }
+      record.pagesScanned = visitedPages.size;
+      record.currentUrl = pageUrl;
+      record.progress = Math.min(92, Math.round((visitedPages.size / effectiveMaxPages) * 80) + 10);
+      record.progressLabel = `Scanning page ${visitedPages.size} of ${effectiveMaxPages}: ${new URL(pageUrl).pathname || '/'}`;
+      await storage.saveScan(record);
 
-      const classified = classifyCookie({ name, domain, path, secure, httpOnly, sameSite }, targetOrigin);
-      const cookieItem = {
-        id: `ck-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
-        name,
-        domain,
-        path,
-        duration: classified.duration,
-        secure,
-        httpOnly,
-        sameSite,
-        category: classified.category,
-        confidence: classified.confidence,
-        provider: classified.provider,
-        party: classified.party,
-        description: classified.description,
-        classificationStatus: classified.classificationStatus,
-        firstSeen: new Date().toISOString(),
-        pagesObserved: [targetUrl],
-        detectionSource: 'HTTP Response Headers',
-        consentScenario: 'pre-consent',
-      };
-      discoveredCookiesMap.set(`${name}|${domain}`, cookieItem);
-    }
+      let html = '';
+      let responseCookies = [];
 
-    // 2. Scan HTML for known third-party tracker signatures
-    const lowerHtml = (html || '').toLowerCase();
-    for (const sig of TRACKER_SIGNATURES) {
-      if (lowerHtml.includes(sig.domain)) {
-        observedThirdPartyDomains.add(sig.domain);
-        trackerTelemetry.push({
-          domain: sig.domain,
-          type: sig.type,
-          name: sig.name,
-          resourceType: 'script',
-          urlSample: `https://${sig.domain}/`,
-          pageUrl: targetUrl,
-          firstSeen: new Date().toISOString(),
+      try {
+        const res = await fetch(pageUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36 PrivacySEK-Scanner/1.0',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          },
+          redirect: 'follow',
         });
 
-        if (sig.domain.includes('google-analytics') || sig.domain.includes('googletagmanager')) {
-          if (!discoveredCookiesMap.has(`_ga|${targetHost}`)) {
-            const gaCookie = classifyCookie({ name: '_ga', domain: targetHost, path: '/', secure: false, httpOnly: false }, targetOrigin);
-            discoveredCookiesMap.set(`_ga|${targetHost}`, {
-              id: `ck-${Date.now()}-1`,
-              name: '_ga',
-              domain: targetHost,
-              path: '/',
-              duration: gaCookie.duration,
-              secure: false,
-              httpOnly: false,
-              sameSite: 'Lax',
-              category: gaCookie.category,
-              confidence: gaCookie.confidence,
-              provider: gaCookie.provider,
-              party: gaCookie.party,
-              description: gaCookie.description,
-              classificationStatus: gaCookie.classificationStatus,
+        if (typeof res.headers.getSetCookie === 'function') {
+          responseCookies = res.headers.getSetCookie();
+        } else {
+          const raw = res.headers.get('set-cookie');
+          if (raw) responseCookies = [raw];
+        }
+
+        html = await res.text();
+      } catch (err) {
+        failedPages.push({ url: pageUrl, error: err.message });
+        return;
+      }
+
+      // Check for consent banner hints
+      const lowerHtml = (html || '').toLowerCase();
+      if (lowerHtml.includes('cookie') && (lowerHtml.includes('consent') || lowerHtml.includes('accept') || lowerHtml.includes('onetrust') || lowerHtml.includes('privacy'))) {
+        bannerDetected = true;
+      }
+
+      // Extract cookies from Set-Cookie headers
+      for (const rawCookie of responseCookies) {
+        const parts = rawCookie.split(';').map(p => p.trim());
+        const [nameVal, ...attrs] = parts;
+        const eqIdx = nameVal.indexOf('=');
+        const name = eqIdx > 0 ? nameVal.slice(0, eqIdx) : nameVal;
+        let domain = targetHost;
+        let path = '/';
+        let secure = false;
+        let httpOnly = false;
+        let sameSite = 'Lax';
+
+        for (const attr of attrs) {
+          const lower = attr.toLowerCase();
+          if (lower.startsWith('domain=')) domain = attr.slice(7);
+          else if (lower.startsWith('path=')) path = attr.slice(5);
+          else if (lower === 'secure') secure = true;
+          else if (lower === 'httponly') httpOnly = true;
+          else if (lower.startsWith('samesite=')) sameSite = attr.slice(9);
+        }
+
+        const classified = classifyCookie({ name, domain, path, secure, httpOnly, sameSite }, targetOrigin);
+        const cookieItem = {
+          id: `ck-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+          name,
+          domain,
+          path,
+          duration: classified.duration,
+          secure,
+          httpOnly,
+          sameSite,
+          category: classified.category,
+          confidence: classified.confidence,
+          provider: classified.provider,
+          party: classified.party,
+          description: classified.description,
+          classificationStatus: classified.classificationStatus,
+          firstSeen: new Date().toISOString(),
+          pagesObserved: [pageUrl],
+          detectionSource: 'HTTP Response Headers',
+          consentScenario: 'pre-consent',
+        };
+        discoveredCookiesMap.set(`${name}|${domain}`, cookieItem);
+      }
+
+      // Scan HTML for third-party trackers
+      for (const sig of TRACKER_SIGNATURES) {
+        if (lowerHtml.includes(sig.domain)) {
+          observedThirdPartyDomains.add(sig.domain);
+          if (!trackerTelemetry.some(t => t.domain === sig.domain)) {
+            trackerTelemetry.push({
+              domain: sig.domain,
+              type: sig.type,
+              name: sig.name,
+              resourceType: 'script',
+              urlSample: `https://${sig.domain}/`,
+              pageUrl,
               firstSeen: new Date().toISOString(),
-              pagesObserved: [targetUrl],
-              detectionSource: 'Network Tracker Signature',
-              consentScenario: 'pre-consent',
             });
           }
-        }
-        if (sig.domain.includes('facebook') || sig.domain.includes('connect.facebook')) {
-          if (!discoveredCookiesMap.has(`_fbp|${targetHost}`)) {
-            const fbpCookie = classifyCookie({ name: '_fbp', domain: targetHost, path: '/', secure: false, httpOnly: false }, targetOrigin);
-            discoveredCookiesMap.set(`_fbp|${targetHost}`, {
-              id: `ck-${Date.now()}-2`,
-              name: '_fbp',
-              domain: targetHost,
-              path: '/',
-              duration: fbpCookie.duration,
-              secure: false,
-              httpOnly: false,
-              sameSite: 'Lax',
-              category: fbpCookie.category,
-              confidence: fbpCookie.confidence,
-              provider: fbpCookie.provider,
-              party: fbpCookie.party,
-              description: fbpCookie.description,
-              classificationStatus: fbpCookie.classificationStatus,
-              firstSeen: new Date().toISOString(),
-              pagesObserved: [targetUrl],
-              detectionSource: 'Network Tracker Signature',
-              consentScenario: 'pre-consent',
-            });
+
+          // Add known tracker cookies if not yet discovered
+          if (sig.domain.includes('google-analytics') || sig.domain.includes('googletagmanager')) {
+            if (!discoveredCookiesMap.has(`_ga|${targetHost}`)) {
+              const gaCookie = classifyCookie({ name: '_ga', domain: targetHost, path: '/', secure: false, httpOnly: false }, targetOrigin);
+              discoveredCookiesMap.set(`_ga|${targetHost}`, {
+                id: `ck-${Date.now()}-ga`,
+                name: '_ga',
+                domain: targetHost,
+                path: '/',
+                duration: gaCookie.duration,
+                secure: false,
+                httpOnly: false,
+                sameSite: 'Lax',
+                category: gaCookie.category,
+                confidence: gaCookie.confidence,
+                provider: gaCookie.provider,
+                party: gaCookie.party,
+                description: gaCookie.description,
+                classificationStatus: gaCookie.classificationStatus,
+                firstSeen: new Date().toISOString(),
+                pagesObserved: [pageUrl],
+                detectionSource: 'Network Tracker Signature',
+                consentScenario: 'pre-consent',
+              });
+            }
+          }
+          if (sig.domain.includes('facebook') || sig.domain.includes('connect.facebook')) {
+            if (!discoveredCookiesMap.has(`_fbp|${targetHost}`)) {
+              const fbpCookie = classifyCookie({ name: '_fbp', domain: targetHost, path: '/', secure: false, httpOnly: false }, targetOrigin);
+              discoveredCookiesMap.set(`_fbp|${targetHost}`, {
+                id: `ck-${Date.now()}-fbp`,
+                name: '_fbp',
+                domain: targetHost,
+                path: '/',
+                duration: fbpCookie.duration,
+                secure: false,
+                httpOnly: false,
+                sameSite: 'Lax',
+                category: fbpCookie.category,
+                confidence: fbpCookie.confidence,
+                provider: fbpCookie.provider,
+                party: fbpCookie.party,
+                description: fbpCookie.description,
+                classificationStatus: fbpCookie.classificationStatus,
+                firstSeen: new Date().toISOString(),
+                pagesObserved: [pageUrl],
+                detectionSource: 'Network Tracker Signature',
+                consentScenario: 'pre-consent',
+              });
+            }
           }
         }
       }
+
+      // Discover internal links for Deep Scan and Custom Scan
+      if (visitedPages.size < effectiveMaxPages && !controller.cancelled) {
+        const linkRegex = /<a\s+(?:[^>]*?\s+)?href=["']([^"'#\s>]+)["']/gi;
+        let match;
+        while ((match = linkRegex.exec(html)) !== null) {
+          const raw = match[1]?.trim();
+          if (!raw || raw.startsWith('javascript:') || raw.startsWith('mailto:') || raw.startsWith('tel:')) continue;
+          try {
+            const resolved = new URL(raw, pageUrl);
+            if (resolved.origin === targetOrigin) {
+              resolved.hash = '';
+              resolved.search = '';
+              const cleanHref = resolved.href;
+              const pathname = resolved.pathname.toLowerCase();
+
+              if (excludePaths.some(ex => pathname.startsWith(ex.toLowerCase()))) continue;
+              if (includePaths.length > 0 && !includePaths.some(inc => pathname.startsWith(inc.toLowerCase()))) continue;
+              if (/\.(png|jpe?g|gif|svg|css|js|woff2?|ttf|eot|ico|pdf|zip|mp4|webp)$/i.test(pathname)) continue;
+
+              if (!visitedPages.has(cleanHref) && !pageQueue.includes(cleanHref)) {
+                pageQueue.push(cleanHref);
+              }
+            }
+          } catch {
+            // ignore malformed
+          }
+        }
+      }
+    };
+
+    // Crawl queue up to effectiveMaxPages
+    while (pageQueue.length > 0 && visitedPages.size < effectiveMaxPages && !controller.cancelled) {
+      const nextUrl = pageQueue.shift();
+      await crawlPage(nextUrl);
+      if (pageQueue.length > 0 && visitedPages.size < effectiveMaxPages) {
+        await new Promise(r => setTimeout(r, 100));
+      }
     }
 
-    // Always ensure at least session cookies if no other cookies discovered
     if (discoveredCookiesMap.size === 0) {
       const sessCookie = classifyCookie({ name: 'session_id', domain: targetHost, path: '/', secure: true, httpOnly: true }, targetOrigin);
       discoveredCookiesMap.set(`session_id|${targetHost}`, {
@@ -857,21 +928,21 @@ export class ScannerService {
       });
     }
 
-    // 3. Finalize scan report
     const allCookies = Array.from(discoveredCookiesMap.values());
     const unclassifiedCookies = allCookies.filter(
       c => c.category === 'unclassified' || c.classificationStatus === 'Review required'
     );
     const durationSec = Math.max(1, Math.round((Date.now() - startTime) / 1000));
+    const finalStatus = controller.cancelled ? 'cancelled' : 'completed';
 
-    record.status = 'completed';
+    record.status = finalStatus;
     record.completedAt = new Date().toISOString();
     record.progress = 100;
-    record.progressLabel = 'Scan completed successfully';
-    record.pagesScanned = 1;
-    record.pagesDiscovered = 1;
-    record.failedPages = [];
-    record.pagesFailed = 0;
+    record.progressLabel = finalStatus === 'cancelled' ? 'Scan cancelled by user.' : 'Scan completed successfully';
+    record.pagesScanned = visitedPages.size;
+    record.pagesDiscovered = visitedPages.size + pageQueue.length;
+    record.failedPages = failedPages;
+    record.pagesFailed = failedPages.length;
 
     record.report = {
       scanId,
@@ -887,9 +958,9 @@ export class ScannerService {
       },
       type,
       durationSeconds: durationSec,
-      pagesScanned: 1,
-      pagesVisitedList: [targetUrl],
-      failedPages: [],
+      pagesScanned: visitedPages.size,
+      pagesVisitedList: Array.from(visitedPages),
+      failedPages,
       totalCookies: allCookies.length,
       cookies: allCookies,
       unclassifiedCount: unclassifiedCookies.length,
@@ -897,8 +968,8 @@ export class ScannerService {
       trackersDetected: trackerTelemetry,
       consentScenario: {
         tested: true,
-        bannerDetected: lowerHtml.includes('cookie') || lowerHtml.includes('consent') || lowerHtml.includes('onetrust'),
-        note: 'Inspected via Cloud HTTP Engine with header and script tag analysis.',
+        bannerDetected,
+        note: `Inspected via Cloud Multi-Page Crawler across ${visitedPages.size} page(s) with tracker analysis.`,
       },
       categoriesBreakdown: {
         necessary: allCookies.filter(c => c.category === 'necessary').length,
@@ -910,7 +981,7 @@ export class ScannerService {
       },
     };
 
-    record.resultNote = `Discovered ${allCookies.length} cookies and ${trackerTelemetry.length} third-party trackers across target website (${durationSec}s).`;
+    record.resultNote = `Discovered ${allCookies.length} cookies and ${trackerTelemetry.length} third-party trackers across ${visitedPages.size} page(s) (${durationSec}s).`;
     await storage.saveScan(record);
     activeJobs.delete(scanId);
   }
