@@ -12,10 +12,10 @@ another database.
 
 ```bash
 npm install
-npm run migrate    # initialize demo data in MongoDB
 ```
 
-Start the backend and frontend in separate terminals:
+Start the backend and frontend in separate terminals. On first startup, the backend
+automatically initializes the demo data in MongoDB if the database is empty:
 
 ```bash
 npm run server     # backend API at http://localhost:3001
@@ -24,6 +24,8 @@ npm run server     # backend API at http://localhost:3001
 ```bash
 npm run dev        # open http://localhost:5173
 ```
+
+For an existing database missing its demo data, run `npm run migrate` and restart the backend.
 
 To create a production frontend build, run `npm run build`; output is written to `dist/`.
 

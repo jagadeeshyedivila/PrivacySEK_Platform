@@ -13,9 +13,12 @@ export default function App() {
     setError(null);
     try {
       const initData = await platformApi.fetchInitData();
+      if (!initData?.org?.short || !Array.isArray(initData.guard?.approvals)) {
+        throw new Error("Platform data is not initialized. Restart the backend to seed demo data, or run npm run migrate.");
+      }
       setData(initData);
     } catch (err) {
-      console.error("[PrivacySEK] Backend connection failed:", err);
+      console.error("[PrivacySEK] App initialization failed:", err);
       setError(err.message || "Failed to connect to backend server / MongoDB.");
     } finally {
       setLoading(false);

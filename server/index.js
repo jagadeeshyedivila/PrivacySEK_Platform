@@ -4,6 +4,7 @@ import { ScannerService } from './scanner.js';
 import { storage } from './storage.js';
 import { startSchedulerDaemon, calculateNextRun } from './scheduler.js';
 import { connectDB, closeDB } from './db.js';
+import { runMigration } from './migrate.js';
 import { cookieRouter } from './routes/cookieRoutes.js';
 import { platformRouter } from './routes/platformRoutes.js';
 
@@ -300,7 +301,18 @@ app.post('/api/scanner/schedules/:id/run', async (req, res) => {
 // Start the server with MongoDB connection
 async function startServer() {
   try {
-    await connectDB();
+    const db = await connectDB();
+    const settings = await db.collection('platform_settings').findOne(
+      { key: 'org_settings' },
+      { projection: { _id: 1 } },
+    );
+
+    if (!settings) {
+      console.log('[Setup] No platform data found. Initializing demo data in MongoDB...');
+      await closeDB();
+      await runMigration();
+      await connectDB();
+    }
   } catch (err) {
     console.error('[FATAL] Backend could not establish MongoDB connection:', err.message);
     process.exit(1);
