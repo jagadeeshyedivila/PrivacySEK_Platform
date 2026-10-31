@@ -111,6 +111,7 @@ export async function runMigration() {
     { id: "necessary", name: "Necessary", description: "Supports core site features, authentication, and security. Cannot be disabled.", required: true, defaultState: true, showInPref: true },
     { id: "functional", name: "Functional", description: "Remembers optional settings such as language, theme, and saved items.", required: false, defaultState: false, showInPref: true },
     { id: "analytics", name: "Analytics", description: "Measures site usage to help teams understand visitor engagement and optimize journeys.", required: false, defaultState: false, showInPref: true },
+    { id: "marketing", name: "Marketing", description: "Enables promotional campaigns, cross-device marketing attribution, and conversion tracking across channels.", required: false, defaultState: false, showInPref: true },
     { id: "advertising", name: "Advertising", description: "Supports marketing attribution, relevant advertising, and campaign measurement across platforms.", required: false, defaultState: false, showInPref: true },
     { id: "social_media", name: "Social Media", description: "Enables social sharing buttons, embedded media players, and community widgets.", required: false, defaultState: false, showInPref: true },
   ];
@@ -135,7 +136,7 @@ export async function runMigration() {
     ["_ga", "analytics", "Third-party", "Google Analytics", "13 months", "Distinguishes visitors in the analytics pipeline.", false, true],
     ["_gid", "analytics", "Third-party", "Google Analytics", "24 hours", "Groups page views into short visitor sessions.", false, true],
     ["_cl_demo", "analytics", "Third-party", "Clarity Insights", "30 days", "Unique identifier for session heatmaps and engagement measurement.", false, true],
-    ["campaign_ref", "advertising", "First-party", "PrivacySEK", "30 days", "Attributes inbound referral campaigns to landing pages.", false, true],
+    ["campaign_ref", "marketing", "First-party", "PrivacySEK", "30 days", "Attributes inbound referral campaigns to landing pages.", false, true],
     ["_fbp", "advertising", "Third-party", "Meta Platforms", "90 days", "Stores and tracks visits across websites for advertising attribution.", false, true],
     ["ad_demo_id", "advertising", "Third-party", "The Trade Desk", "90 days", "Campaign measurement and frequency capping identifier.", false, true],
     ["video-player-id", "social_media", "Third-party", "Media CDN", "Session", "Maintains video player volume and playback state.", false, false],
@@ -251,6 +252,7 @@ export async function runMigration() {
         necessary: true,
         functional: action === "Accept All" || (action === "Save Preferences" && random() > 0.45),
         analytics: action === "Accept All" || (action === "Save Preferences" && random() > 0.5),
+        marketing: action === "Accept All" || (action === "Save Preferences" && random() > 0.6),
         advertising: action === "Accept All" || (action === "Save Preferences" && random() > 0.65),
         social_media: action === "Accept All" || (action === "Save Preferences" && random() > 0.7),
       };

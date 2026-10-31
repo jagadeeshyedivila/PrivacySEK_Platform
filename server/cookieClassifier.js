@@ -5,12 +5,102 @@
  * - necessary (Strictly Necessary)
  * - functional (Functional Preferences)
  * - analytics (Analytics & Measurement)
+ * - marketing (Marketing, Campaigns & Lead Gen)
  * - advertising (Advertising & Targeting)
  * - social_media (Social Media & Widgets)
  * - unclassified (Needs manual review)
  */
 
 const KNOWN_COOKIE_RULES = [
+  // MARKETING & CAMPAIGN ATTRIBUTION (OneTrust / PrivacyPillar standard)
+  {
+    pattern: /^(TapAd_.*|tapad_.*)$/i,
+    category: 'marketing',
+    provider: 'Tapad Inc. / Experian',
+    partyHint: 'Third-party',
+    confidence: 'high',
+    purpose: 'Cross-device digital marketing attribution, customer identity resolution, and audience matching.',
+  },
+  {
+    pattern: /^(__hstc|hubspotutk|__hssc|__hssrc|hs[-_].*)$/i,
+    category: 'marketing',
+    provider: 'HubSpot Marketing',
+    partyHint: 'First-party',
+    confidence: 'high',
+    purpose: 'HubSpot marketing automation, inbound visitor tracking, and lead lifecycle attribution.',
+  },
+  {
+    pattern: /^(_mkto_trk|mkto_.*)$/i,
+    category: 'marketing',
+    provider: 'Adobe Marketo Engage',
+    partyHint: 'First-party',
+    confidence: 'high',
+    purpose: 'Tracks visitor journey across marketing collateral and attributes lead scoring in Marketo.',
+  },
+  {
+    pattern: /^(visitor_id\d+|pardot.*|pi_opt_in)$/i,
+    category: 'marketing',
+    provider: 'Salesforce Pardot',
+    partyHint: 'First-party',
+    confidence: 'high',
+    purpose: 'Identifies prospective leads and logs inbound marketing campaign interactions.',
+  },
+  {
+    pattern: /^(mc_cid|mc_eid|mailchimp_.*)$/i,
+    category: 'marketing',
+    provider: 'Mailchimp Email Marketing',
+    partyHint: 'First-party',
+    confidence: 'high',
+    purpose: 'Links subscriber click-throughs from promotional email newsletters to site actions.',
+  },
+  {
+    pattern: /^(__klKey|_kl_id|klaviyo_.*)$/i,
+    category: 'marketing',
+    provider: 'Klaviyo Marketing Automation',
+    partyHint: 'Third-party',
+    confidence: 'high',
+    purpose: 'E-commerce marketing automation, abandoned cart triggers, and SMS/email customer campaigns.',
+  },
+  {
+    pattern: /^(_uetmsclkid|_uetsid|_uetvid)$/i,
+    category: 'marketing',
+    provider: 'Microsoft Advertising (Bing Ads)',
+    partyHint: 'Third-party',
+    confidence: 'high',
+    purpose: 'Universal Event Tracking (UET) for Microsoft Advertising conversion measurement and audience targeting.',
+  },
+  {
+    pattern: /^(demdex|everest_session_v2|everest_g_v2|mbox)$/i,
+    category: 'marketing',
+    provider: 'Adobe Experience Cloud (Marketing & Target)',
+    partyHint: 'Third-party',
+    confidence: 'high',
+    purpose: 'Cross-channel audience profiling, automated personalization, and marketing campaign attribution.',
+  },
+  {
+    pattern: /^(_tt_enable_cookie|_ttp|tt_.*)$/i,
+    category: 'marketing',
+    provider: 'TikTok for Business',
+    partyHint: 'Third-party',
+    confidence: 'high',
+    purpose: 'TikTok Pixel tracks visitor conversions and optimizes short-video ad campaign performance.',
+  },
+  {
+    pattern: /^(_pin_unauth|_epik|p_.*)$/i,
+    category: 'marketing',
+    provider: 'Pinterest Tag',
+    partyHint: 'Third-party',
+    confidence: 'high',
+    purpose: 'Tracks conversions from promoted pins and attributes social commerce shopping events.',
+  },
+  {
+    pattern: /^(campaign_ref|affiliate_.*|cj_.*|shareasale_.*|awin_.*|impact_.*|rakuten_.*)$/i,
+    category: 'marketing',
+    provider: 'Marketing & Affiliate Network',
+    partyHint: 'First-party',
+    confidence: 'high',
+    purpose: 'Attributes referral commissions, partner promotional campaigns, and coupon conversions.',
+  },
   // NECESSARY / SECURITY / CSRF / SESSION / CDN
   {
     pattern: /^(JSESSIONID|PHPSESSID|ASP\.NET_SessionId|connect\.sid|sid|session_id|sessid)$/i,
@@ -45,12 +135,44 @@ const KNOWN_COOKIE_RULES = [
     purpose: 'Maintains session stickiness to specific AWS application load balancers.',
   },
   {
-    pattern: /^(privacysek-session|consent-state|cookieconsent_status|OptanonConsent|OptanonAlertBoxClosed|CookieConsent)$/i,
+    pattern: /^(privacysek-session|consent-state|cookieconsent_status|OptanonConsent|OptanonAlertBoxClosed|_OT_.*|CookieConsent|eupubconsent-v2|addtl_consent)$/i,
     category: 'necessary',
-    provider: 'Consent Management',
+    provider: 'Consent Management (OneTrust / CMP)',
     partyHint: 'First-party',
     confidence: 'high',
     purpose: 'Stores the visitor\'s cookie consent preferences and compliance audit trail.',
+  },
+  {
+    pattern: /^(SecureNetflixId|NetflixId|gsid|flwssn|nfvdid|memclid|cL)$/i,
+    category: 'necessary',
+    provider: 'Netflix Inc.',
+    partyHint: 'First-party',
+    confidence: 'high',
+    purpose: 'Netflix session authentication, device identification, stream authorization, and security integrity.',
+  },
+  {
+    pattern: /^(_gcl_.*|_gac_.*)$/i,
+    category: 'advertising',
+    provider: 'Google Ads / Tag Manager',
+    partyHint: 'First-party',
+    confidence: 'high',
+    purpose: 'Google conversion tracking linker used to attribute advertising conversions across first-party domains.',
+  },
+  {
+    pattern: /^(X-AB|sc_at|_scid|_scid_r)$/i,
+    category: 'advertising',
+    provider: 'Snapchat / Snap Inc.',
+    partyHint: 'Third-party',
+    confidence: 'high',
+    purpose: 'Snapchat tracking pixel and conversion measurement.',
+  },
+  {
+    pattern: /.*(sans.*loaded|font.*loaded|-loaded)$/i,
+    category: 'functional',
+    provider: 'Web Font Caching & Performance',
+    partyHint: 'First-party',
+    confidence: 'high',
+    purpose: 'Records typography and web font cache completion to prevent Flash of Unstyled Text (FOUT).',
   },
 
   // ANALYTICS & MEASUREMENT
@@ -240,7 +362,41 @@ export function classifyCookie(cookie, targetOrigin) {
     };
   }
 
-  if (/track|pixel|event|ad|lead|banner|click/i.test(name)) {
+  if (/(font|loaded|fout|typography|asset-cache)/i.test(name)) {
+    return {
+      name,
+      domain: domain || targetHost,
+      category: 'functional',
+      confidence: 'medium',
+      provider: party === 'First-party' ? 'Website Asset Loader' : 'Third-party Font Service',
+      party,
+      duration,
+      description: 'Records client-side asset or typography cache status to optimize rendering performance.',
+      secure: Boolean(secure),
+      httpOnly: Boolean(httpOnly),
+      sameSite: sameSite || 'Lax',
+      classificationStatus: 'Reviewed',
+    };
+  }
+
+  if (/(?:^|[-_.])(marketing|newsletter|lead|promo|campaign|mktg|hubspot|marketo|pardot|mailchimp|klaviyo|tapad)(?:[-_.]|$)/i.test(name)) {
+    return {
+      name,
+      domain: domain || targetHost,
+      category: 'marketing',
+      confidence: 'medium',
+      provider: party === 'Third-party' ? 'Marketing Technology Provider' : 'Inbound Marketing',
+      party,
+      duration,
+      description: 'Promotional campaign parameter, lead attribution, or inbound marketing tracking.',
+      secure: Boolean(secure),
+      httpOnly: Boolean(httpOnly),
+      sameSite: sameSite || 'Lax',
+      classificationStatus: 'Review required',
+    };
+  }
+
+  if (/(?:^|[-_.])(track|pixel|event|lead|banner|click|ad|ads|advert|campaign|retargeting)(?:[-_.]|$)/i.test(name) || /^(ad_|ads_|doubleclick|criteo)/i.test(name)) {
     return {
       name,
       domain: domain || targetHost,

@@ -20,11 +20,39 @@ export function registerActions(context, ACT) {
     }
   };
   ACT["cc-dashboard-range"] = days => {
-    ui.dashboardRange = [7, 30, 90].includes(Number(days)) ? Number(days) : 30;
+    ui.dashboardRange = days === "all" ? "all" : ([7, 30, 90].includes(Number(days)) ? Number(days) : 30);
     runtime.render();
   };
   ACT["cc-dashboard-region"] = region => {
     ui.dashboardRegion = region;
+    runtime.render();
+  };
+  ACT["cc-dashboard-scantype"] = type => {
+    ui.dashboardScanType = type;
+    runtime.render();
+  };
+  ACT["cc-dashboard-domain"] = domain => {
+    ui.dashboardDomain = domain;
+    runtime.render();
+  };
+  ACT["cc-dashboard-category"] = cat => {
+    ui.dashboardCategory = cat;
+    runtime.render();
+  };
+  ACT["cc-dashboard-filter-scantype"] = type => {
+    ui.dashboardScanType = (ui.dashboardScanType === type) ? "all" : type;
+    runtime.render();
+  };
+  ACT["cc-dashboard-filter-category"] = cat => {
+    ui.dashboardCategory = (ui.dashboardCategory === cat) ? "all" : cat;
+    runtime.render();
+  };
+  ACT["cc-dashboard-reset-filters"] = () => {
+    ui.dashboardRange = 30;
+    ui.dashboardRegion = "all";
+    ui.dashboardScanType = "all";
+    ui.dashboardDomain = "all";
+    ui.dashboardCategory = "all";
     runtime.render();
   };
   ACT["cc-dashboard-go"] = destination => {

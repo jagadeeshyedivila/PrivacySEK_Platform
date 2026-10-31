@@ -85,12 +85,14 @@ export function registerActions(context, ACT) {
     runtime.render();
     reloadInventory();
   };
-  ACT["cc-inventory-page"] = p => {
-    ui.inventoryPage = Math.max(1, Number(p) || 1);
+  ACT["cc-inventory-page"] = (p, el) => {
+    const pageVal = p || el?.getAttribute("data-arg") || el?.getAttribute("data-page");
+    ui.inventoryPage = Math.max(1, Number(pageVal) || 1);
     reloadInventory();
   };
-  ACT["cc-inventory-page-size"] = s => {
-    ui.inventoryPageSize = Math.max(1, Number(s) || 10);
+  ACT["cc-inventory-page-size"] = (s, el) => {
+    const sizeVal = s || el?.value || el?.getAttribute("data-arg");
+    ui.inventoryPageSize = Math.max(1, Number(sizeVal) || 10);
     ui.inventoryPage = 1;
     reloadInventory();
   };
@@ -241,20 +243,32 @@ export function registerActions(context, ACT) {
       <button class="btn t" data-act="cc-confirm-category-new">Save Purpose</button>
     `);
   };
-  ACT["cc-confirm-category-new"] = (_arg, element) => {
+  ACT["cc-confirm-category-new"] = async (_arg, element) => {
     const id = readDialogField(element, "#cc-new-cat-id")?.trim().toLowerCase().replace(/[^a-z0-9_]/g, "_");
     const name = readDialogField(element, "#cc-new-cat-name")?.trim();
     const desc = readDialogField(element, "#cc-new-cat-desc")?.trim();
     if (!id || !name) { runtime.toast("Category ID and Name are required"); return; }
-    state.categories.push({ id, name, description: desc || name, required: false, defaultState: false, showInPref: true });
-    state.visitor.categories[id] = false;
-    runtime.closeOv();
-    persist(`Category ${name} created`);
+    
+    const newCategory = { id, name, description: desc || name, required: false, defaultState: false, showInPref: true };
+    try {
+      const created = await cookieApi.createCategory(newCategory);
+      state.categories.push(created);
+      state.visitor.categories[id] = false;
+      runtime.closeOv();
+      persist(`Category ${name} created`);
+    } catch (err) {
+      runtime.toast(`Failed to create category: ${err.message}`);
+    }
   };
-  ACT["cc-category-delete"] = id => {
-    state.categories = state.categories.filter(c => c.id !== id);
-    delete state.visitor.categories[id];
-    persist("Category removed");
+  ACT["cc-category-delete"] = async id => {
+    try {
+      await cookieApi.deleteCategory(id);
+      state.categories = state.categories.filter(c => c.id !== id);
+      delete state.visitor.categories[id];
+      persist("Category removed");
+    } catch (err) {
+      runtime.toast(`Failed to delete category: ${err.message}`);
+    }
   };
   ACT["cc-category-edit"] = id => {
     const category = state.categories.find(item => item.id === id);
@@ -275,7 +289,7 @@ export function registerActions(context, ACT) {
       <button class="btn t" data-act="cc-category-save-edit" data-arg="${safe(category.id)}">Save Changes</button>
     `);
   };
-  ACT["cc-category-save-edit"] = (id, element) => {
+  ACT["cc-category-save-edit"] = async (id, element) => {
     const category = state.categories.find(item => item.id === id);
     const name = readDialogField(element, "#cc-edit-category-name")?.trim();
     if (!category) return;
@@ -287,11 +301,19 @@ export function registerActions(context, ACT) {
       runtime.toast("A category name is required");
       return;
     }
-    category.name = name;
-    category.description = readDialogField(element, "#cc-edit-category-description")?.trim() || "";
-    category.defaultState = readDialogField(element, "#cc-edit-category-default") === "true";
-    runtime.closeOv();
-    persist(`Category ${name} updated`);
+    const updates = {
+      name,
+      description: readDialogField(element, "#cc-edit-category-description")?.trim() || "",
+      defaultState: readDialogField(element, "#cc-edit-category-default") === "true",
+    };
+    try {
+      const updated = await cookieApi.updateCategory(id, updates);
+      Object.assign(category, updated);
+      runtime.closeOv();
+      persist(`Category ${name} updated`);
+    } catch (err) {
+      runtime.toast(`Failed to update category: ${err.message}`);
+    }
   };
 
 

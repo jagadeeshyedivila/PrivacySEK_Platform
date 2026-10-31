@@ -27,6 +27,21 @@ npm run dev        # open http://localhost:5173
 
 For an existing database missing its demo data, run `npm run migrate` and restart the backend.
 
+### Deployment environment variables
+
+Keep local development and production settings separate:
+
+- Local `.env`: use a MongoDB URI such as `mongodb://127.0.0.1:27017` and leave
+  `VITE_SCANNER_API_URL` empty so Vite proxies API requests to the local backend.
+- Render backend: set `MONGODB_URI` to your MongoDB provider's connection string and
+  `MONGODB_DB_NAME` to the production database name. The Render service URL is not a
+  MongoDB connection string.
+- Vercel frontend: set `VITE_SCANNER_API_URL` to the Render backend URL
+  (for example, `https://privacysek-platform.onrender.com`), then redeploy.
+
+Use separate database names for development and production when both environments share
+the same MongoDB cluster. Never put MongoDB credentials in a `VITE_` variable.
+
 To create a production frontend build, run `npm run build`; output is written to `dist/`.
 Production deployments must install production dependencies, including Playwright. If Chromium
 is unavailable on the host, the scanner switches to its multi-page HTTP crawler.

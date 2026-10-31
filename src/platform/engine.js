@@ -26,7 +26,11 @@ var fmt = formatNumber;
 
 
 /* ---------------- navigation ---------------- */
-var S = { view:"cockpit", tab:{}, jur:"DPDP", bu:0, feedTimer:null, approvals:D.guard.approvals.slice(), dsrStep:{}, wiz:null, cats:{}, sel:{} };
+var savedSidebar = false;
+try {
+  savedSidebar = localStorage.getItem("psk_sidebar_collapsed") === "true";
+} catch(e) {}
+var S = { view:"cockpit", tab:{}, jur:"DPDP", bu:0, feedTimer:null, approvals:D.guard.approvals.slice(), dsrStep:{}, wiz:null, cats:{}, sel:{}, sidebarCollapsed: savedSidebar };
 
 var { pill, tag, bar, card, kpi, table, tableToolbar, tablePagination, tableEmptyState, tableSkeleton, copyButton, tabs, curTab, head, btn, stl } = createMarkupHelpers({ S, esc, I });
 var { hash, nowT, ledgerAdd, sevPill } = createRuntimeHelpers({ D, pill });
@@ -42,7 +46,7 @@ function toast(m){ var t=$(".toast"); if(t) t.remove(); d.body.insertAdjacentHTM
 /* ---------------- shell ---------------- */
 function shell(){
   rootEl.innerHTML =
-  '<div class="app">'+renderSidebar({ D, I, MARK, NAV, S })+
+  '<div class="app'+(S.sidebarCollapsed?' collapsed':'')+'" id="app">'+renderSidebar({ D, I, MARK, NAV, S })+
   '<div class="main">'+renderTopbar({ I, S })+
   '<div class="content" id="content"></div></div></div>'+
   '<button class="tour-fab" data-act="tour" data-arg="0"><i></i>Guided demo</button>';
@@ -55,7 +59,65 @@ function go(v){
   $("#rail").classList.remove("open"); var sc=$(".scrim"); if(sc && !$(".drawer") && !$(".modal")) sc.remove();
   $("#content").scrollTop = 0;
 }
-function render(){ clearInterval(S.feedTimer); var html=VIEWS[S.view](); contentRoot.render(React.createElement(MODULE_COMPONENTS[S.view], { html:html })); if(AFTER[S.view]) AFTER[S.view](); }
+function render(){
+  clearInterval(S.feedTimer);
+  var contentEl = $("#content");
+  var prevScrollTop = contentEl ? contentEl.scrollTop : 0;
+  var activeEl = d.activeElement;
+  var activeSelector = null;
+  var activeSelectionStart = null;
+  var activeSelectionEnd = null;
+
+  if (activeEl && contentEl && contentEl.contains(activeEl) && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA" || activeEl.tagName === "SELECT")) {
+    if (activeEl.id) {
+      activeSelector = "#" + activeEl.id;
+    } else if (activeEl.getAttribute("data-input-act")) {
+      activeSelector = '[data-input-act="' + activeEl.getAttribute("data-input-act") + '"]';
+    } else if (activeEl.getAttribute("data-act")) {
+      activeSelector = '[data-act="' + activeEl.getAttribute("data-act") + '"]';
+    } else if (activeEl.className) {
+      activeSelector = "." + activeEl.className.trim().split(/\s+/).join(".");
+    }
+    try {
+      activeSelectionStart = activeEl.selectionStart;
+      activeSelectionEnd = activeEl.selectionEnd;
+    } catch(e) {}
+  }
+
+  var html = VIEWS[S.view]();
+  contentRoot.render(React.createElement(MODULE_COMPONENTS[S.view], { html:html }));
+  if(AFTER[S.view]) AFTER[S.view]();
+
+  if (contentEl && prevScrollTop) {
+    contentEl.scrollTop = prevScrollTop;
+    requestAnimationFrame(function() {
+      if (contentEl) contentEl.scrollTop = prevScrollTop;
+      if (activeSelector) {
+        var restoredEl = contentEl.querySelector(activeSelector);
+        if (restoredEl) {
+          restoredEl.focus();
+          try {
+            if (activeSelectionStart !== null && restoredEl.setSelectionRange) {
+              restoredEl.setSelectionRange(activeSelectionStart, activeSelectionEnd);
+            }
+          } catch(e) {}
+        }
+      }
+    });
+  } else if (activeSelector) {
+    requestAnimationFrame(function() {
+      var restoredEl = contentEl ? contentEl.querySelector(activeSelector) : null;
+      if (restoredEl) {
+        restoredEl.focus();
+        try {
+          if (activeSelectionStart !== null && restoredEl.setSelectionRange) {
+            restoredEl.setSelectionRange(activeSelectionStart, activeSelectionEnd);
+          }
+        } catch(e) {}
+      }
+    });
+  }
+}
 
 /* ======================= VIEWS ======================= */
 var VIEWS = {}, AFTER = {}, ACT = {};
@@ -193,6 +255,32 @@ ACT.bu = function(){ S.bu=(S.bu+1)%D.org.bu.length; $("#bu-l").textContent=D.org
 ACT.menu = function(){ $("#rail").classList.add("open"); d.body.insertAdjacentHTML("beforeend",'<div class="scrim" data-act="closemenu"></div>'); };
 ACT.closemenu = function(){ $("#rail").classList.remove("open"); closeOv(); };
 ACT.notif = function(){ drawer("Notifications","Today", '<div class="list card">'+[["alert","Breach report due in 41 hours","INC-2026-019"],["shield","New approval: Partner NBFC share","APR-118 · 11 min"],["inbox","Grievance escalated","GRV-2026-0471"],["search","Scan found 3 new SPI fields","Discovery"],["truck","Mailchimp DPA renewal due","Vendor Risk"]].map(function(n){ return '<div class="li"><span class="ic">'+I[n[0]]+'</span><span><b>'+n[1]+'</b><small>'+n[2]+'</small></span><span></span></div>'; }).join("")+'</div>'); };
+ACT["toggle-sidebar"] = function(){
+  S.sidebarCollapsed = !S.sidebarCollapsed;
+  try {
+    localStorage.setItem("psk_sidebar_collapsed", S.sidebarCollapsed ? "true" : "false");
+  } catch(e) {}
+  var appEl = $("#app") || $(".app");
+  var railEl = $("#rail");
+  var toggleBtn = $(".rail-collapse-btn");
+  if (S.sidebarCollapsed) {
+    if (appEl) appEl.classList.add("collapsed");
+    if (railEl) railEl.classList.add("collapsed");
+    if (toggleBtn) {
+      toggleBtn.innerHTML = I.chevronRight || I.arrow;
+      toggleBtn.setAttribute("aria-label", "Expand sidebar");
+      toggleBtn.setAttribute("title", "Expand sidebar (⌘B)");
+    }
+  } else {
+    if (appEl) appEl.classList.remove("collapsed");
+    if (railEl) railEl.classList.remove("collapsed");
+    if (toggleBtn) {
+      toggleBtn.innerHTML = I.chevronLeft || I.arrow;
+      toggleBtn.setAttribute("aria-label", "Collapse sidebar");
+      toggleBtn.setAttribute("title", "Collapse sidebar (⌘B)");
+    }
+  }
+};
 
 /* command palette */
 ACT.cmd = function(){ var items=[]; NAV.forEach(function(g){ g[1].forEach(function(i){ items.push([i[1], "go:"+i[0], g[0]||"Home"]); }); });
@@ -249,7 +337,7 @@ Object.keys(MODULE_ACTIONS).forEach(function(key){ MODULE_ACTIONS[key](moduleRun
 /* ======================= EVENTS ======================= */
 d.addEventListener("click", function(e){
   var g=e.target.closest("[data-go]"); if(g){ e.preventDefault(); closeOv(); go(g.getAttribute("data-go")); return; }
-  var a=e.target.closest("[data-act]"); if(!a || a.tagName==="SELECT") return;
+  var a=e.target.closest("[data-act]"); if(!a || a.tagName==="SELECT" || a.disabled) return;
   var fn=ACT[a.getAttribute("data-act")]; if(fn){ e.preventDefault(); fn(a.getAttribute("data-arg"), a); }
 });
 d.addEventListener("change", function(e){
@@ -259,7 +347,32 @@ d.addEventListener("change", function(e){
   if(c && ACT[c.getAttribute("data-change-act")]) ACT[c.getAttribute("data-change-act")](c.checked ? "true" : "false", c);
 });
 d.addEventListener("input", function(e){ var a=e.target.closest("[data-input-act]"); if(a && ACT[a.getAttribute("data-input-act")]) ACT[a.getAttribute("data-input-act")](a.value, a); });
-d.addEventListener("keydown", function(e){ if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==="k"){ e.preventDefault(); ACT.cmd(); } if(e.key==="Escape"){ closeOv(); $("#rail").classList.remove("open"); } });
+d.addEventListener("mouseover", function(e){
+  var btn = e.target.closest(".app.collapsed .nav button, #rail.collapsed .nav button");
+  if (!btn) return;
+  var tip = btn.querySelector(".rail-tooltip");
+  if (tip) {
+    var rect = btn.getBoundingClientRect();
+    tip.style.top = (rect.top + rect.height / 2) + "px";
+  }
+});
+d.addEventListener("focusin", function(e){
+  var btn = e.target.closest(".app.collapsed .nav button, #rail.collapsed .nav button");
+  if (!btn) return;
+  var tip = btn.querySelector(".rail-tooltip");
+  if (tip) {
+    var rect = btn.getBoundingClientRect();
+    tip.style.top = (rect.top + rect.height / 2) + "px";
+  }
+});
+d.addEventListener("keydown", function(e){
+  if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==="b"){
+    e.preventDefault();
+    if(ACT["toggle-sidebar"]) ACT["toggle-sidebar"]();
+  }
+  if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==="k"){ e.preventDefault(); ACT.cmd(); }
+  if(e.key==="Escape"){ closeOv(); $("#rail").classList.remove("open"); }
+});
 window.addEventListener("hashchange", function(){ var h=location.hash.slice(1); if(h && h!==S.view && VIEWS[h]) go(h); });
 
 shell();

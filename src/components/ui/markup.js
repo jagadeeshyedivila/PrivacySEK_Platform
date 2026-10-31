@@ -235,7 +235,7 @@ export function createMarkupHelpers({ S, esc, I }) {
     }
 
     if (startPage > 1) {
-      pageButtons.push(`<button type="button" class="pg-num" data-act="${pageAct}" data-page="1" ${tableId ? `data-table="${tableId}"` : ''} aria-label="Page 1">1</button>`);
+      pageButtons.push(`<button type="button" class="pg-num" data-act="${pageAct}" data-page="1" data-arg="1" ${tableId ? `data-table="${tableId}"` : ''} aria-label="Page 1">1</button>`);
       if (startPage > 2) {
         pageButtons.push('<span class="pg-ellipsis" aria-hidden="true">…</span>');
       }
@@ -244,7 +244,7 @@ export function createMarkupHelpers({ S, esc, I }) {
     for (let p = startPage; p <= endPage; p++) {
       const isCur = p === page;
       pageButtons.push(`
-        <button type="button" class="pg-num${isCur ? ' is-active' : ''}" data-act="${pageAct}" data-page="${p}" ${tableId ? `data-table="${tableId}"` : ''} aria-current="${isCur ? 'page' : 'false'}" aria-label="Page ${p}">
+        <button type="button" class="pg-num${isCur ? ' is-active' : ''}" data-act="${pageAct}" data-page="${p}" data-arg="${p}" ${tableId ? `data-table="${tableId}"` : ''} aria-current="${isCur ? 'page' : 'false'}" aria-label="Page ${p}">
           ${p}
         </button>
       `);
@@ -254,7 +254,7 @@ export function createMarkupHelpers({ S, esc, I }) {
       if (endPage < totalPages - 1) {
         pageButtons.push('<span class="pg-ellipsis" aria-hidden="true">…</span>');
       }
-      pageButtons.push(`<button type="button" class="pg-num" data-act="${pageAct}" data-page="${totalPages}" ${tableId ? `data-table="${tableId}"` : ''} aria-label="Page ${totalPages}">${totalPages}</button>`);
+      pageButtons.push(`<button type="button" class="pg-num" data-act="${pageAct}" data-page="${totalPages}" data-arg="${totalPages}" ${tableId ? `data-table="${tableId}"` : ''} aria-label="Page ${totalPages}">${totalPages}</button>`);
     }
 
     return `
@@ -268,19 +268,19 @@ export function createMarkupHelpers({ S, esc, I }) {
             </select>
           </div>
           <div class="table-pagination-nav" role="navigation" aria-label="Table pagination">
-            <button type="button" class="pg-btn pg-first" data-act="${pageAct}" data-page="1" ${tableId ? `data-table="${tableId}"` : ''} ${page <= 1 ? 'disabled aria-disabled="true"' : ''} title="First page" aria-label="First page">
+            <button type="button" class="pg-btn pg-first" data-act="${pageAct}" data-page="1" data-arg="1" ${tableId ? `data-table="${tableId}"` : ''} ${page <= 1 ? 'disabled aria-disabled="true"' : ''} title="First page" aria-label="First page">
               «
             </button>
-            <button type="button" class="pg-btn pg-prev" data-act="${pageAct}" data-page="${Math.max(1, page - 1)}" ${tableId ? `data-table="${tableId}"` : ''} ${page <= 1 ? 'disabled aria-disabled="true"' : ''} title="Previous page" aria-label="Previous page">
+            <button type="button" class="pg-btn pg-prev" data-act="${pageAct}" data-page="${Math.max(1, page - 1)}" data-arg="${Math.max(1, page - 1)}" ${tableId ? `data-table="${tableId}"` : ''} ${page <= 1 ? 'disabled aria-disabled="true"' : ''} title="Previous page" aria-label="Previous page">
               ‹ Prev
             </button>
             <div class="pg-numbers">
               ${pageButtons.join('')}
             </div>
-            <button type="button" class="pg-btn pg-next" data-act="${pageAct}" data-page="${Math.min(totalPages, page + 1)}" ${tableId ? `data-table="${tableId}"` : ''} ${page >= totalPages ? 'disabled aria-disabled="true"' : ''} title="Next page" aria-label="Next page">
+            <button type="button" class="pg-btn pg-next" data-act="${pageAct}" data-page="${Math.min(totalPages, page + 1)}" data-arg="${Math.min(totalPages, page + 1)}" ${tableId ? `data-table="${tableId}"` : ''} ${page >= totalPages ? 'disabled aria-disabled="true"' : ''} title="Next page" aria-label="Next page">
               Next ›
             </button>
-            <button type="button" class="pg-btn pg-last" data-act="${pageAct}" data-page="${totalPages}" ${tableId ? `data-table="${tableId}"` : ''} ${page >= totalPages ? 'disabled aria-disabled="true"' : ''} title="Last page" aria-label="Last page">
+            <button type="button" class="pg-btn pg-last" data-act="${pageAct}" data-page="${totalPages}" data-arg="${totalPages}" ${tableId ? `data-table="${tableId}"` : ''} ${page >= totalPages ? 'disabled aria-disabled="true"' : ''} title="Last page" aria-label="Last page">
               »
             </button>
           </div>

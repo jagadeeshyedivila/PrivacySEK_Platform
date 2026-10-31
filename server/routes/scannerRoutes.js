@@ -42,7 +42,7 @@ scannerRouter.get('/health', async (_req, res) => {
 // Start a new scan
 scannerRouter.post('/scan', async (req, res) => {
   try {
-    const {
+    let {
       url,
       type = 'Custom Scan',
       maxPages = 10,
@@ -54,8 +54,44 @@ scannerRouter.post('/scan', async (req, res) => {
       allowLocalhost = false,
     } = req.body;
 
-    if (!url) {
+    if (!url || typeof url !== 'string' || !url.trim()) {
       return res.status(400).json({ error: 'Target website URL is required.' });
+    }
+
+    // Normalize URL
+    let cleanUrl = url.trim();
+    const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(cleanUrl);
+    if (hasScheme && !/^https?:\/\//i.test(cleanUrl)) {
+      return res.status(400).json({ error: 'Website URL must use HTTP or HTTPS protocol.' });
+    }
+    if (!hasScheme) {
+      cleanUrl = 'https://' + cleanUrl;
+    }
+
+    try {
+      const parsed = new URL(cleanUrl);
+      parsed.hash = '';
+      cleanUrl = parsed.href;
+    } catch {
+      return res.status(400).json({ error: 'Enter a valid website URL.' });
+    }
+
+    // Validate page limit (1 to 50)
+    const numPages = Number(maxPages);
+    if (!Number.isInteger(numPages) || numPages < 1 || numPages > 50) {
+      return res.status(400).json({ error: 'Maximum pages to scan must be an integer between 1 and 50.' });
+    }
+
+    // Validate crawl depth (1, 2, or 3)
+    const numDepth = Number(maxDepth);
+    if (![1, 2, 3].includes(numDepth)) {
+      return res.status(400).json({ error: 'Crawl link depth must be 1, 2, or 3.' });
+    }
+
+    // Validate max duration
+    const numDuration = Number(maxDurationSec);
+    if (isNaN(numDuration) || numDuration < 30 || numDuration > 600) {
+      return res.status(400).json({ error: 'Maximum duration must be between 30 and 600 seconds.' });
     }
 
     let ScannerService;
@@ -70,14 +106,14 @@ scannerRouter.post('/scan', async (req, res) => {
     }
 
     const scanRecord = await ScannerService.startScan({
-      url,
+      url: cleanUrl,
       type,
-      maxPages: Number(maxPages) || 10,
-      maxDepth: Number(maxDepth) || 2,
+      maxPages: numPages,
+      maxDepth: numDepth,
       additionalUrls: Array.isArray(additionalUrls) ? additionalUrls : [],
-      includePaths: Array.isArray(includePaths) ? includePaths : [],
-      excludePaths: Array.isArray(excludePaths) ? excludePaths : [],
-      maxDurationSec: Number(maxDurationSec) || 120,
+      includePaths: Array.isArray(includePaths) ? includePaths.map(p => String(p).trim()).filter(Boolean) : [],
+      excludePaths: Array.isArray(excludePaths) ? excludePaths.map(p => String(p).trim()).filter(Boolean) : [],
+      maxDurationSec: numDuration,
       allowLocalhost: Boolean(allowLocalhost),
     });
 
@@ -143,6 +179,44 @@ scannerRouter.post('/scan/:id/cancel', async (req, res) => {
       return res.status(404).json({ error: 'Scan not found or already terminated.' });
     }
     return res.json({ success: true, message: 'Scan cancelled.', scan: cancelled });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update a cookie classification within a scan report
+scannerRouter.patch('/scan/:id/cookie', async (req, res) => {
+  try {
+    const { cookieName, category, classificationStatus, confidence, purpose, provider } = req.body;
+    if (!cookieName || !category) {
+      return res.status(400).json({ error: 'cookieName and category are required.' });
+    }
+
+    const scan = await storage.getScan(req.params.id);
+    if (!scan) {
+      return res.status(404).json({ error: 'Scan not found.' });
+    }
+
+    if (scan.report && Array.isArray(scan.report.cookies)) {
+      const cookie = scan.report.cookies.find(c => c.name === cookieName);
+      if (cookie) {
+        cookie.category = category;
+        if (classificationStatus) cookie.classificationStatus = classificationStatus;
+        if (confidence) cookie.confidence = confidence;
+        if (purpose) cookie.purpose = purpose;
+        if (provider) cookie.provider = provider;
+
+        scan.report.unclassifiedCount = scan.report.cookies.filter(
+          c => c.category === 'unclassified' || c.classificationStatus === 'Review required'
+        ).length;
+        scan.unclassifiedCount = scan.report.unclassifiedCount;
+
+        await storage.saveScan(scan);
+        return res.json({ success: true, cookie, scan });
+      }
+    }
+
+    return res.status(404).json({ error: 'Cookie not found in scan report.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -252,6 +326,23 @@ scannerRouter.post('/compare', async (req, res) => {
 scannerRouter.get('/schedules', async (_req, res) => {
   try {
     const schedules = await storage.getAllSchedules();
+    for (const sched of schedules) {
+      if (sched.lastRunStatus === 'Running' && sched.lastScanId) {
+        const scan = await storage.getScan(sched.lastScanId);
+        if (scan && scan.status !== 'running' && scan.status !== 'queued') {
+          sched.lastRunStatus = scan.status === 'completed' ? 'Completed'
+            : scan.status === 'partially_completed' ? 'Partially Completed'
+            : scan.status === 'cancelled' ? 'Cancelled'
+            : 'Failed';
+          sched.lastRunAt = scan.completedAt || sched.lastRunAt;
+          if (sched.frequency === 'Once') {
+            sched.enabled = false;
+            sched.nextRunAt = null;
+          }
+          await storage.saveSchedule(sched);
+        }
+      }
+    }
     res.json(schedules);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -266,7 +357,12 @@ scannerRouter.post('/schedules', async (req, res) => {
       type = 'Custom Scan',
       frequency = 'Weekly',
       pages = 10,
+      depth = 2,
+      duration = 120,
+      includePaths = [],
+      excludePaths = [],
       urls = [],
+      options = {},
       enabled = true,
       allowLocalhost = false,
     } = req.body;
@@ -275,16 +371,23 @@ scannerRouter.post('/schedules', async (req, res) => {
       return res.status(400).json({ error: 'Target URL is required for scheduling.' });
     }
 
+    const nextRun = frequency === 'Once' ? null : calculateNextRun(frequency, new Date(), options);
+
     const schedule = {
-      id: `schedule-${Date.now()}`,
+      id: req.body.id || `schedule-${Date.now()}`,
       url,
       type,
       frequency,
       pages: Number(pages) || 10,
+      depth: Number(depth) || 2,
+      duration: Number(duration) || 120,
+      includePaths: Array.isArray(includePaths) ? includePaths : [],
+      excludePaths: Array.isArray(excludePaths) ? excludePaths : [],
       urls: Array.isArray(urls) && urls.length ? urls : [url],
+      options: options || {},
       enabled: Boolean(enabled),
       createdAt: new Date().toISOString(),
-      nextRunAt: calculateNextRun(frequency),
+      nextRunAt: nextRun,
       lastRunAt: null,
       lastRunStatus: null,
       allowLocalhost: Boolean(allowLocalhost),
@@ -334,19 +437,26 @@ scannerRouter.post('/schedules/:id/run', async (req, res) => {
       url: schedule.url,
       type: schedule.type || 'Custom Scan',
       maxPages: schedule.pages || 10,
+      maxDepth: schedule.depth || 2,
+      maxDurationSec: schedule.duration || 120,
+      includePaths: schedule.includePaths || [],
+      excludePaths: schedule.excludePaths || [],
       additionalUrls: schedule.urls || [],
       allowLocalhost: schedule.allowLocalhost || false,
+      scheduleId: schedule.id,
     });
 
     schedule.lastRunAt = new Date().toISOString();
     schedule.lastRunStatus = 'Running';
     schedule.lastScanId = scan.id;
-    if (schedule.frequency !== 'Once') {
-      schedule.nextRunAt = calculateNextRun(schedule.frequency);
+    if (schedule.frequency === 'Once') {
+      schedule.nextRunAt = null;
+    } else {
+      schedule.nextRunAt = calculateNextRun(schedule.frequency, new Date(), schedule.options || {});
     }
     await storage.saveSchedule(schedule);
 
-    res.json({ success: true, scan });
+    res.json({ success: true, scan, schedule });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

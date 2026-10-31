@@ -81,5 +81,8 @@ export function createCookieUiState() {
     installCmpTab: "html",
     dashboardRange: 30,
     dashboardRegion: "all",
+    dashboardScanType: "all",
+    dashboardDomain: "all",
+    dashboardCategory: "all",
   };
 }

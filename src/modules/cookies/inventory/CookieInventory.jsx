@@ -78,7 +78,7 @@ export function createRenderer(context) {
           </div>
         `,
         `<span class="cell-truncate" title="${safe(c.provider)}">${safe(c.provider)}</span>`,
-        runtime.pill(c.category === "necessary" ? "ok" : c.category === "analytics" ? "info" : c.category === "advertising" ? "risk" : "n", state.categories?.find(cat => cat.id === c.category)?.name || c.category),
+        runtime.pill(c.category === "necessary" ? "ok" : c.category === "analytics" ? "info" : (c.category === "advertising" || c.category === "marketing") ? "risk" : c.category === "functional" ? "mask" : "n", state.categories?.find(cat => cat.id === c.category)?.name || c.category),
         `<span class="cell-truncate">${safe(c.party)}</span>`,
         `
           <div style="display:flex;flex-direction:column;gap:3px;">

@@ -27,6 +27,31 @@ export const cookieApi = {
     return await request('/api/cookies/state');
   },
 
+  // Categories
+  async getCategories() {
+    return await request('/api/cookies/categories');
+  },
+
+  async createCategory(categoryData) {
+    return await request('/api/cookies/categories', {
+      method: 'POST',
+      body: JSON.stringify(categoryData),
+    });
+  },
+
+  async updateCategory(id, categoryData) {
+    return await request(`/api/cookies/categories/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(categoryData),
+    });
+  },
+
+  async deleteCategory(id) {
+    return await request(`/api/cookies/categories/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
   // Inventory
   async getInventory(filters = {}) {
     const params = new URLSearchParams();

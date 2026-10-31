@@ -41,34 +41,54 @@ function readDialogField(element, selector) {
 }
 
 function validateScanSeeds(baseValue, additionalValues, pageLimit) {
-  let baseUrl;
-  try {
-    baseUrl = new URL(String(baseValue || "").trim());
-  } catch {
-    return { error: "Enter a valid website URL." };
-  }
-  if (!["http:", "https:"].includes(baseUrl.protocol)) {
-    return { error: "Website URL must use HTTP or HTTPS." };
+  let val = String(baseValue || "").trim();
+  if (!val) {
+    return { error: "Target website URL is required. Enter a valid website URL." };
   }
 
+  const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(val);
+  if (hasScheme && !/^https?:\/\//i.test(val)) {
+    return { error: "Website URL must use HTTP or HTTPS protocol." };
+  }
+  if (!hasScheme) {
+    val = "https://" + val;
+  }
+
+  let baseUrl;
+  try {
+    baseUrl = new URL(val);
+  } catch {
+    return { error: "Enter a valid website URL (e.g., https://example.com)." };
+  }
+
+  if (!["http:", "https:"].includes(baseUrl.protocol)) {
+    return { error: "Website URL must use HTTP or HTTPS protocol." };
+  }
+  if (!baseUrl.hostname || (!baseUrl.hostname.includes(".") && baseUrl.hostname !== "localhost")) {
+    return { error: "Enter a valid website domain name or hostname." };
+  }
+
+  baseUrl.hash = "";
   const urls = [baseUrl.href];
+
   for (const rawValue of additionalValues) {
     const value = String(rawValue || "").trim();
     if (!value) continue;
     let url;
     try {
       url = new URL(value, baseUrl);
+      url.hash = "";
     } catch {
       return { error: `Enter a valid URL or path for "${value}".` };
     }
     if (!["http:", "https:"].includes(url.protocol) || url.origin !== baseUrl.origin) {
-      return { error: "Additional scan URLs must use HTTP or HTTPS and stay on the base website's origin." };
+      return { error: `Additional scan URL "${value}" must stay on the same origin (${baseUrl.origin}).` };
     }
     if (!urls.includes(url.href)) urls.push(url.href);
   }
 
   if (Number.isInteger(pageLimit) && pageLimit > 0 && urls.length > pageLimit) {
-    return { error: `The page limit (${pageLimit}) must include the base URL and every additional starting URL.` };
+    return { error: `The page budget (${pageLimit}) must be at least as large as the ${urls.length} configured seed URLs.` };
   }
   return { baseUrl: baseUrl.href, urls };
 }
@@ -162,14 +182,14 @@ export function createCookieConsentView(moduleRuntime) {
     backendSynced = true;
     cookieApi.getState().then(data => {
       if (data) {
-        if (Array.isArray(data.cookies) && data.cookies.length) state.cookies = data.cookies;
-        if (Array.isArray(data.categories) && data.categories.length) state.categories = data.categories;
+        if (Array.isArray(data.cookies)) state.cookies = data.cookies;
+        if (Array.isArray(data.categories)) state.categories = data.categories;
         if (data.draft) state.draft = data.draft;
         if (data.published) state.published = data.published;
         if (Array.isArray(data.versions) && data.versions.length) state.versions = data.versions;
         if (Array.isArray(data.blockedTags)) state.blockedTags = data.blockedTags;
         if (Array.isArray(data.availableTags)) state.availableTags = data.availableTags;
-        if (Array.isArray(data.consentRecords) && data.consentRecords.length) state.consentRecords = data.consentRecords;
+        if (Array.isArray(data.consentRecords)) state.consentRecords = data.consentRecords;
         if (Array.isArray(data.pageViews) && data.pageViews.length) state.pageViews = data.pageViews;
         runtime.render();
       }

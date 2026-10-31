@@ -3,18 +3,34 @@ import { ScannerService } from './scanner.js';
 
 let intervalId = null;
 
-export function calculateNextRun(frequency, fromDate = new Date()) {
+export function calculateNextRun(frequency, fromDate = new Date(), options = {}) {
   const d = new Date(fromDate);
+  const time = options.time || '09:00';
+  const [hours, minutes] = time.split(':').map(Number);
+  d.setHours(hours || 9, minutes || 0, 0, 0);
+
   switch (frequency) {
-    case 'Daily':
+    case 'Daily': {
       d.setDate(d.getDate() + 1);
       break;
-    case 'Weekly':
-      d.setDate(d.getDate() + 7);
+    }
+    case 'Weekly': {
+      const targetDay = Number.isInteger(options.weekday) ? options.weekday : 1; // 1 = Monday
+      let daysAhead = (targetDay - d.getDay() + 7) % 7;
+      if (daysAhead === 0) daysAhead = 7;
+      d.setDate(d.getDate() + daysAhead);
       break;
-    case 'Monthly':
-      d.setMonth(d.getMonth() + 1);
+    }
+    case 'Monthly': {
+      const targetMonthDay = Math.min(31, Math.max(1, Number(options.monthDay) || 1));
+      const nextMonth = d.getMonth() + 1;
+      const year = d.getFullYear() + Math.floor(nextMonth / 12);
+      const month = nextMonth % 12;
+      const daysInTargetMonth = new Date(year, month + 1, 0).getDate();
+      const safeDay = Math.min(targetMonthDay, daysInTargetMonth);
+      d.setFullYear(year, month, safeDay);
       break;
+    }
     case 'Once':
       return null;
     default:
@@ -52,8 +68,13 @@ export function startSchedulerDaemon() {
               url: schedule.url,
               type: schedule.type || 'Custom Scan',
               maxPages: schedule.pages || 10,
+              maxDepth: schedule.depth || 2,
+              maxDurationSec: schedule.duration || 120,
+              includePaths: schedule.includePaths || [],
+              excludePaths: schedule.excludePaths || [],
               additionalUrls: schedule.urls || [],
               allowLocalhost: schedule.allowLocalhost || false,
+              scheduleId: schedule.id,
             });
 
             schedule.lastRunStatus = 'Queued';
@@ -68,7 +89,7 @@ export function startSchedulerDaemon() {
             schedule.enabled = false;
             schedule.nextRunAt = null;
           } else {
-            schedule.nextRunAt = calculateNextRun(schedule.frequency, now);
+            schedule.nextRunAt = calculateNextRun(schedule.frequency, now, schedule.options || {});
           }
 
           await storage.saveSchedule(schedule);

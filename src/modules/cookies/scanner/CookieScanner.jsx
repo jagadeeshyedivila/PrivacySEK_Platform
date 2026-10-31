@@ -96,6 +96,56 @@ export function createRenderer(context) {
       const target = schedule.urls?.length > 1 ? `${schedule.urls.length} URLs` : schedule.url;
       const copyUrlBtn = runtime.copyButton && schedule.url ? runtime.copyButton(schedule.url, `Copy target URL: ${schedule.url}`) : '';
 
+      // Check whether this schedule is currently running in active scans
+      const isScheduleRunning = (schedule.lastRunStatus === "Running" || schedule.lastRunStatus === "Queued") &&
+        state.scans.some(s => s.id === schedule.lastScanId && (s.status === "Running" || s.status === "queued"));
+
+      // Determine effective status (reconciles with scan record if completed)
+      let effectiveStatus = schedule.lastRunStatus;
+      if (effectiveStatus === "Running" && !isScheduleRunning) {
+        const finishedScan = state.scans.find(s => s.id === schedule.lastScanId || (s.scheduledId === schedule.id));
+        if (finishedScan && finishedScan.status !== "Running") {
+          effectiveStatus = finishedScan.status;
+        } else if (!runningScan) {
+          effectiveStatus = "Completed";
+        }
+      }
+
+      let statusPill = "—";
+      if (effectiveStatus) {
+        if (isScheduleRunning) {
+          statusPill = runtime.pill("info", "Running…");
+        } else if (effectiveStatus === "Completed") {
+          statusPill = runtime.pill("ok", "Completed");
+        } else if (effectiveStatus === "Partially Completed") {
+          statusPill = runtime.pill("mask", "Partially Completed");
+        } else if (effectiveStatus === "Cancelled") {
+          statusPill = runtime.pill("dim", "Cancelled");
+        } else if (effectiveStatus.startsWith("Failed")) {
+          statusPill = runtime.pill("risk", "Failed");
+        } else {
+          statusPill = runtime.pill("ok", effectiveStatus);
+        }
+      }
+
+      // Next Run label
+      let nextRunLabel = "—";
+      if (schedule.frequency === "Once") {
+        nextRunLabel = (effectiveStatus && effectiveStatus !== "Running" && effectiveStatus !== "Queued")
+          ? "Completed (Once)"
+          : (schedule.nextRunAt ? dateLabel(schedule.nextRunAt) : "One-time");
+      } else if (schedule.nextRunAt) {
+        nextRunLabel = dateLabel(schedule.nextRunAt);
+      }
+
+      // Action button label
+      let runBtnLabel = "Run Now";
+      if (isScheduleRunning) {
+        runBtnLabel = "Running…";
+      } else if (effectiveStatus === "Completed" || effectiveStatus === "Partially Completed") {
+        runBtnLabel = "Run Again";
+      }
+
       return [
         `
           <div>
@@ -109,12 +159,12 @@ export function createRenderer(context) {
           </div>
         `,
         safe(schedule.frequency),
-        safe(schedule.nextRunAt ? dateLabel(schedule.nextRunAt) : "—"),
+        safe(nextRunLabel),
         `Up to ${Number(schedule.pages) || 10} pages`,
-        schedule.lastRunStatus ? runtime.pill(schedule.lastRunStatus.startsWith("Running") ? "info" : "ok", schedule.lastRunStatus) : "—",
+        statusPill,
         `
           <div style="display:flex;gap:4px;justify-content:flex-end;">
-            <button class="btn sm" data-act="cc-run-scheduled-scan" data-arg="${safe(schedule.id)}" ${runningScan ? "disabled" : ""}>Run Now</button>
+            <button class="btn sm" data-act="cc-run-scheduled-scan" data-arg="${safe(schedule.id)}" ${runningScan || isScheduleRunning ? "disabled" : ""}>${runBtnLabel}</button>
             <button class="btn sm d" data-act="cc-delete-scan-schedule" data-arg="${safe(schedule.id)}">Remove</button>
           </div>
         `,
@@ -162,92 +212,188 @@ export function createRenderer(context) {
             </div>
           `)}
 
-          ${runtime.card("Latest Scan Details", latestScan ? `
-            <div class="cc-scan-status-line">
-              <span class="cc-scan-status-indicator ${latestScan.status === "Running" ? "running" : latestScan.status === "Completed" ? "complete" : ""}"></span>
-              <div>
-                <small>Scan Status</small>
-                <strong>${safe(latestScan.status === "Running" ? "Crawling Target Website…" : latestScan.status)}</strong>
-              </div>
-              <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
-                ${runtime.pill(
-                  latestScan.status === "Completed" ? "ok" : latestScan.status === "Running" ? "info" : latestScan.status === "Cancelled" ? "n" : "risk",
-                  latestScan.type
-                )}
-                <span class="sub" style="font-family:var(--f-mono);font-size:10px;color:var(--text-3);">${safe(latestScan.id)}</span>
-              </div>
-            </div>
+          ${runtime.card("Latest Scan Details", latestScan ? (() => {
+            const isRunning = latestScan.status === "Running";
+            const isComplete = latestScan.status === "Completed";
+            const isPartial = latestScan.status === "Partially Completed";
+            const isFailed = latestScan.status === "Failed";
+            const isCancelled = latestScan.status === "Cancelled";
 
-            <dl class="cc-scan-detail-grid">
-              <div><dt>Scan Started</dt><dd>${safe(dateLabel(latestScan.createdAt))}</dd></div>
-              <div><dt>Scan Finished</dt><dd>${safe(latestScan.completedAt ? dateLabel(latestScan.completedAt) : latestScan.status === "Running" ? "In progress…" : "—")}</dd></div>
-              <div>
-                <dt>Target Website</dt>
-                <dd class="cc-scan-url">
-                  ${safe(latestScan.url || latestScan.urls?.[0] || "—")}
-                  ${latestScan.redirected ? `<span style="display:block;font-size:9.5px;color:var(--accent);margin-top:2px;">↳ Safe redirect followed from ${safe(latestScan.initialUrl)}</span>` : ""}
-                </dd>
-              </div>
-              <div><dt>Page Scope</dt><dd>${latestScan.type === "Deep Scan" ? "Deep link discovery (up to 25 pages)" : `Configured: ${latestScan.pagesAttempted || 10} pages`}</dd></div>
-            </dl>
+            const cookiesList = latestScan.report?.cookies || [];
+            const totalCookies = latestScan.report?.totalCookies ?? latestScan.cookiesCount ?? cookiesList.length;
+            const firstPartyCount = cookiesList.filter(c => c.party === "First-party").length;
+            const thirdPartyCount = cookiesList.filter(c => c.party === "Third-party").length;
+            const unclassifiedCount = latestScan.report?.unclassifiedCount ?? latestScan.unclassifiedCount ?? 0;
+            const trackersCount = latestScan.report?.thirdPartyDomains?.length ?? latestScan.thirdPartyCount ?? 0;
+            const bannerDetected = Boolean(latestScan.report?.consentScenario?.bannerDetected);
+            const progressVal = Math.min(100, Math.max(0, Number(latestScan.progress) || (isRunning ? 12 : 100)));
 
-            <div class="cc-scan-metrics">
-              <div>
-                <span>Discovered Cookies</span>
-                <strong style="color:var(--accent);font-size:14px;">${latestScan.report?.totalCookies ?? latestScan.cookiesCount ?? 0}</strong>
-              </div>
-              <div>
-                <span>Third-Party Trackers</span>
-                <strong style="font-size:14px;">${latestScan.report?.thirdPartyDomains?.length ?? latestScan.thirdPartyCount ?? 0}</strong>
-              </div>
-              <div>
-                <span>Pages Crawled</span>
-                <strong style="font-size:14px;">${latestScan.pagesScanned || 0} / ${latestScan.pagesAttempted || 10}</strong>
-              </div>
-              <div>
-                <span>Unclassified Cookies</span>
-                <strong style="color:${(latestScan.report?.unclassifiedCount || latestScan.unclassifiedCount) ? 'var(--risk)' : 'var(--text-2)'};font-size:14px;">
-                  ${latestScan.report?.unclassifiedCount ?? latestScan.unclassifiedCount ?? 0}
-                </strong>
-              </div>
-              <div>
-                <span>Consent Banner Test</span>
-                <strong style="font-size:12px;">
-                  ${latestScan.report?.consentScenario?.bannerDetected ? "Banner Detected" : "Pre-Consent Only"}
-                </strong>
-              </div>
-            </div>
-
-            ${latestScan.status === "Running" ? `
-              <div class="cc-scan-progress" role="progressbar" aria-label="Playwright scanning progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Number(latestScan.progress) || 0}">
-                <div class="cc-scan-progress-label">
-                  <span>${safe(latestScan.progressLabel || "Visiting target website...")}</span>
-                  <b>${Number(latestScan.progress) || 0}%</b>
+            return `
+              <div class="cc-scan-details-v2">
+                <!-- Status Header Banner -->
+                <div class="cc-scan-hero-banner ${isRunning ? 'is-running' : isComplete ? 'is-complete' : isPartial ? 'is-partial' : isFailed ? 'is-failed' : 'is-idle'}">
+                  <div class="cc-scan-hero-left">
+                    <span class="cc-scan-status-badge ${isRunning ? 'running' : isComplete ? 'complete' : isPartial ? 'partial' : isFailed ? 'failed' : 'idle'}">
+                      <span class="cc-scan-beacon"></span>
+                      ${safe(isRunning ? "Crawling Target Website…" : isComplete ? "Scan Completed" : isPartial ? "Partially Completed" : isCancelled ? "Cancelled" : "Scan Failed")}
+                    </span>
+                    <div class="cc-scan-hero-meta">
+                      <span class="cc-scan-hero-type">${safe(latestScan.type || "Website Scan")}</span>
+                      <span class="cc-scan-hero-dot">•</span>
+                      <span class="cc-scan-hero-id" title="Scan ID">${safe(latestScan.id)}</span>
+                    </div>
+                  </div>
+                  <div class="cc-scan-hero-right">
+                    <span class="cc-scan-hero-timer">
+                      ${safe(latestScan.completedAt ? `Finished ${dateLabel(latestScan.completedAt)}` : isRunning ? "Worker Active (Headless Chromium)" : dateLabel(latestScan.createdAt))}
+                    </span>
+                  </div>
                 </div>
-                <div class="cc-scan-progress-track">
-                  <span style="width:${Number(latestScan.progress) || 0}%"></span>
+
+                <!-- Active Crawl Loader & Real-Time Telemetry (When Running) -->
+                ${isRunning ? `
+                  <div class="cc-scan-active-loader cc-scan-progress" role="progressbar" aria-label="Playwright scanning progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progressVal}">
+                    <div class="cc-scan-loader-header">
+                      <div class="cc-scan-loader-title">
+                        <span class="cc-scan-spin-radar"></span>
+                        <div class="cc-scan-loader-label-group">
+                          <strong class="cc-scan-loader-action">${safe(latestScan.progressLabel || "Visiting target website...")}</strong>
+                          <span class="cc-scan-loader-sub">Playwright headless worker inspecting DOM, storage, and network trackers</span>
+                        </div>
+                      </div>
+                      <div class="cc-scan-loader-pct">
+                        <span>${progressVal}<b>%</b></span>
+                      </div>
+                    </div>
+
+                    <div class="cc-scan-loader-track">
+                      <div class="cc-scan-loader-fill" style="width:${progressVal}%">
+                        <div class="cc-scan-loader-shimmer"></div>
+                      </div>
+                    </div>
+
+                    <div class="cc-scan-live-feed">
+                      <div class="cc-scan-feed-item">
+                        <span class="cc-scan-feed-tag">ACTIVE URL</span>
+                        <code class="cc-scan-feed-url" title="${safe(latestScan.currentUrl || latestScan.url)}">${safe(latestScan.currentUrl || latestScan.url)}</code>
+                      </div>
+                      <div class="cc-scan-feed-stats">
+                        <span><b>${latestScan.pagesScanned || 1}</b> / <b>${latestScan.pagesAttempted || 10}</b> pages</span>
+                        <span class="cc-scan-dot-sep">•</span>
+                        <span><b>${totalCookies}</b> cookies</span>
+                        <span class="cc-scan-dot-sep">•</span>
+                        <span><b>${trackersCount}</b> trackers</span>
+                      </div>
+                    </div>
+                  </div>
+                ` : ""}
+
+                <!-- Detailed Target Site & Scope Bar -->
+                <div class="cc-scan-target-bar">
+                  <div class="cc-scan-target-item">
+                    <span class="cc-scan-target-label">Target Website</span>
+                    <div class="cc-scan-target-val">
+                      <a href="${safe(latestScan.url || latestScan.urls?.[0] || "#")}" target="_blank" rel="noopener noreferrer" class="cc-scan-domain-link">
+                        ${safe(latestScan.url || latestScan.urls?.[0] || "—")}
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>
+                      </a>
+                      ${latestScan.redirected ? `<span class="cc-scan-redirect-pill">↳ Redirected from ${safe(latestScan.initialUrl)}</span>` : ""}
+                    </div>
+                  </div>
+                  <div class="cc-scan-target-item">
+                    <span class="cc-scan-target-label">Crawl Scope</span>
+                    <span class="cc-scan-target-sub">${latestScan.type === "Deep Scan" ? "Autonomous deep link discovery (up to 25 pages)" : `Configured: ${latestScan.pagesAttempted || 10} pages · Depth ${latestScan.config?.maxDepth || 2}`}</span>
+                  </div>
+                  <div class="cc-scan-target-item">
+                    <span class="cc-scan-target-label">Scan Started</span>
+                    <span class="cc-scan-target-sub">${safe(dateLabel(latestScan.createdAt))}</span>
+                  </div>
                 </div>
-                <small style="color:var(--text-3);font-family:var(--f-mono);">
-                  Current: ${safe(latestScan.currentUrl || latestScan.url)}
-                </small>
+
+                <!-- Visual Metrics Grid -->
+                <div class="cc-scan-metrics-v2 cc-scan-metrics">
+                  <div class="cc-scan-metric-card">
+                    <div class="cc-scan-metric-header">
+                      <span>Discovered Cookies</span>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a9 9 0 109 9 3 3 0 01-3-3 3 3 0 01-3-3 3 3 0 01-3-3z"/><circle cx="9" cy="11" r="1"/><circle cx="14" cy="15" r="1"/><circle cx="9" cy="16" r="1"/></svg>
+                    </div>
+                    <strong class="cc-scan-metric-val cc-val-accent">${totalCookies}</strong>
+                    <small class="cc-scan-metric-note">
+                      ${latestScan.report ? `${firstPartyCount} 1st-party · ${thirdPartyCount} 3rd-party` : "Cookies identified"}
+                    </small>
+                  </div>
+
+                  <div class="cc-scan-metric-card">
+                    <div class="cc-scan-metric-header">
+                      <span>Third-Party Trackers</span>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3 2"/></svg>
+                    </div>
+                    <strong class="cc-scan-metric-val ${trackersCount > 0 ? 'cc-val-warning' : ''}">${trackersCount}</strong>
+                    <small class="cc-scan-metric-note">Ad networks & beacons</small>
+                  </div>
+
+                  <div class="cc-scan-metric-card">
+                    <div class="cc-scan-metric-header">
+                      <span>Pages Audited</span>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h5"/></svg>
+                    </div>
+                    <strong class="cc-scan-metric-val">${latestScan.pagesScanned || 0} <span class="cc-scan-metric-subval">/ ${latestScan.pagesAttempted || 10}</span></strong>
+                    <small class="cc-scan-metric-note">${latestScan.pagesDiscovered || latestScan.pagesScanned || 1} pages queued</small>
+                  </div>
+
+                  <div class="cc-scan-metric-card">
+                    <div class="cc-scan-metric-header">
+                      <span>Review Required</span>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l9.5 17h-19z"/><path d="M12 10v4M12 17.5h.01"/></svg>
+                    </div>
+                    <strong class="cc-scan-metric-val ${unclassifiedCount > 0 ? 'cc-val-risk' : 'cc-val-ok'}">
+                      ${unclassifiedCount}
+                    </strong>
+                    <small class="cc-scan-metric-note">${unclassifiedCount === 0 ? "All cookies classified" : "Pending categorization"}</small>
+                  </div>
+
+                  <div class="cc-scan-metric-card">
+                    <div class="cc-scan-metric-header">
+                      <span>Consent Banner Test</span>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"/></svg>
+                    </div>
+                    <strong class="cc-scan-metric-val" style="font-size:13px;font-weight:600;">
+                      ${bannerDetected ? "Banner Detected" : "Pre-Consent Only"}
+                    </strong>
+                    <small class="cc-scan-metric-note">${bannerDetected ? "OneTrust / CMP verified" : "Prior consent compliance"}</small>
+                  </div>
+                </div>
+
+                <!-- Result Note & Actions (When not running) -->
+                ${!isRunning ? `
+                  <div class="cc-scan-callout ${isComplete ? 'is-complete' : isPartial ? 'is-partial' : 'is-default'} cc-scan-result-note">
+                    <div class="cc-scan-callout-icon">
+                      ${isComplete ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>` : isPartial ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>` : `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 3l9.5 17h-19z"/><path d="M12 10v4M12 17.5h.01"/></svg>`}
+                    </div>
+                    <div class="cc-scan-callout-text">
+                      <strong>${isComplete ? "Crawl Completed Successfully" : isPartial ? "Scan Completed with Limits" : "Scan Terminated"}</strong>
+                      <p>${safe(latestScan.resultNote || `Scan finished ${dateLabel(latestScan.completedAt)}.`)}</p>
+                    </div>
+                  </div>
+
+                  <div class="cc-scan-footer-actions" style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;">
+                    <button class="btn sm t" data-act="cc-view-scan-report" data-arg="${safe(latestScan.id)}">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      View Detailed Report & Cookies
+                    </button>
+                    <button class="btn sm" data-act="cc-sync-scan-to-inventory" data-arg="${safe(latestScan.id)}">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px;"><path d="M12 5v14M5 12h14"/></svg>
+                      Add Discovered Cookies to Inventory
+                    </button>
+                    <button class="btn sm" data-act="cc-compare-scans-modal" data-arg="${safe(latestScan.id)}">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px;"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>
+                      Compare Scans
+                    </button>
+                  </div>
+                ` : ""}
               </div>
-            ` : `
-              <div class="cc-scan-result-note">
-                ${safe(latestScan.resultNote || `Scan finished ${dateLabel(latestScan.completedAt)}.`)}
-              </div>
-              <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;">
-                <button class="btn sm t" data-act="cc-view-scan-report" data-arg="${safe(latestScan.id)}">
-                  View Detailed Report & Cookies
-                </button>
-                <button class="btn sm" data-act="cc-sync-scan-to-inventory" data-arg="${safe(latestScan.id)}">
-                  Add Discovered Cookies to Inventory
-                </button>
-                <button class="btn sm" data-act="cc-compare-scans-modal" data-arg="${safe(latestScan.id)}">
-                  Compare Scans
-                </button>
-              </div>
-            `}
-          ` : `
+            `;
+          })() : `
             <div class="cc-scan-empty">
               No scans have been executed yet. Enter a valid website URL and start a Deep Scan or configure a Custom Scan.
             </div>

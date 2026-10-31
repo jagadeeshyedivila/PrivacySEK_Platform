@@ -23,7 +23,7 @@ test.describe("C. Cookie Consent Submodules & Tabs Regression Tests", () => {
     // Search filter
     const search = page.locator('input[data-input-act="cc-search-inventory"]');
     await search.fill("_ga");
-    await expect(page.locator("table.t tbody tr")).toContainText("_ga");
+    await expect(page.locator("table.t tbody tr").first()).toContainText("_ga");
 
     // Add cookie modal
     await page.click('button[data-act="cc-cookie-new"]');

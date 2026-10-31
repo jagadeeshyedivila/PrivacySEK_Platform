@@ -67,12 +67,14 @@ export function registerActions(context, ACT) {
     ui.recordsPage = 1;
     reloadRecords();
   };
-  ACT["cc-records-page"] = p => {
-    ui.recordsPage = Math.max(1, Number(p) || 1);
+  ACT["cc-records-page"] = (p, el) => {
+    const pageVal = p || el?.getAttribute("data-arg") || el?.getAttribute("data-page");
+    ui.recordsPage = Math.max(1, Number(pageVal) || 1);
     reloadRecords();
   };
-  ACT["cc-records-page-size"] = s => {
-    ui.recordsPageSize = Math.max(1, Number(s) || 25);
+  ACT["cc-records-page-size"] = (s, el) => {
+    const sizeVal = s || el?.value || el?.getAttribute("data-arg");
+    ui.recordsPageSize = Math.max(1, Number(sizeVal) || 25);
     ui.recordsPage = 1;
     reloadRecords();
   };

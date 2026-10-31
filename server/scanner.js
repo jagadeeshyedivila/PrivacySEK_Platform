@@ -62,6 +62,65 @@ const ACCEPT_BUTTON_SELECTORS = [
   'button:has-text("Accept")',
 ];
 
+/**
+ * Evaluates whether a URL pathname matches a path filter pattern.
+ * Supports exact paths (/admin), trailing wildcards (/admin/* or /admin*), and prefix directories.
+ */
+export function matchesPathPattern(pathname, pattern) {
+  if (!pattern || typeof pattern !== 'string') return false;
+  let normPath = pathname.toLowerCase().trim();
+  let normPat = pattern.toLowerCase().trim();
+  if (!normPat) return false;
+
+  // Ensure leading slash
+  if (!normPat.startsWith('/')) normPat = '/' + normPat;
+  if (!normPath.startsWith('/')) normPath = '/' + normPath;
+
+  // Root or catch-all wildcard
+  if (normPat === '/*' || normPat === '*') return true;
+  if (normPat === '/') return normPath === '/';
+
+  // Wildcard patterns
+  if (normPat.endsWith('/*')) {
+    const prefix = normPat.slice(0, -2);
+    return normPath === prefix || normPath.startsWith(prefix + '/');
+  }
+  if (normPat.endsWith('*')) {
+    const prefix = normPat.slice(0, -1);
+    return normPath.startsWith(prefix);
+  }
+
+  // Exact path or sub-directory (e.g. /admin matches /admin, /admin/, and /admin/users, but NOT /administrator)
+  const cleanPat = normPat.replace(/\/+$/, '');
+  const cleanPath = normPath.replace(/\/+$/, '');
+  return cleanPath === cleanPat || cleanPath.startsWith(cleanPat + '/');
+}
+
+/**
+ * Checks whether a given URL is eligible to be scanned according to include/exclude rules.
+ */
+export function isUrlEligible(url, includePaths = [], excludePaths = []) {
+  try {
+    const pathname = new URL(url).pathname;
+    
+    // Exclude rules take precedence
+    if (Array.isArray(excludePaths) && excludePaths.length > 0) {
+      const isExcluded = excludePaths.some(p => matchesPathPattern(pathname, p));
+      if (isExcluded) return false;
+    }
+
+    // Include rules: if defined, URL must match at least one
+    if (Array.isArray(includePaths) && includePaths.length > 0) {
+      const isIncluded = includePaths.some(p => matchesPathPattern(pathname, p));
+      if (!isIncluded) return false;
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export class ScannerService {
   /**
    * Initiates a new scan job.
@@ -78,6 +137,7 @@ export class ScannerService {
     excludePaths = [],
     maxDurationSec = 120,
     allowLocalhost = false,
+    scheduleId = null,
   }) {
     // 1. SSRF Guard & Safe Redirect Resolver
     const resolved = await resolveSafeDestination(url, { allowLocalhost });
@@ -90,18 +150,22 @@ export class ScannerService {
     const targetOrigin = resolved.finalOrigin;
 
     // 2. Validate additional seed URLs relative to the final destination origin
-    const validatedSeeds = [targetUrl];
+    const rawSeeds = [targetUrl];
     for (const rawSeed of additionalUrls) {
       if (!rawSeed) continue;
       try {
         const resolvedSeed = new URL(rawSeed, targetUrl);
-        if (resolvedSeed.origin === targetOrigin && !validatedSeeds.includes(resolvedSeed.href)) {
-          validatedSeeds.push(resolvedSeed.href);
+        resolvedSeed.hash = '';
+        if (resolvedSeed.origin === targetOrigin && !rawSeeds.includes(resolvedSeed.href)) {
+          rawSeeds.push(resolvedSeed.href);
         }
       } catch {
         // ignore invalid seed
       }
     }
+
+    // Filter seeds through include/exclude rules
+    const validatedSeeds = rawSeeds.filter(s => isUrlEligible(s, includePaths, excludePaths));
 
     const scanId = `scan-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     const effectiveMaxPages = type === 'Deep Scan' ? Math.min(maxPages || 25, 50) : Math.min(maxPages || 10, 50);
@@ -135,6 +199,7 @@ export class ScannerService {
         includePaths,
         excludePaths,
       },
+      scheduleId,
       report: null,
       resultNote: null,
     };
@@ -162,6 +227,7 @@ export class ScannerService {
         includePaths,
         excludePaths,
         allowLocalhost,
+        scheduleId,
         redirectInfo: {
           redirected: Boolean(resolved.redirected),
           initialUrl,
@@ -174,6 +240,20 @@ export class ScannerService {
         scanRecord.completedAt = new Date().toISOString();
         scanRecord.resultNote = `Scan execution encountered an error: ${err.message}`;
         storage.saveScan(scanRecord);
+        if (scheduleId) {
+          storage.getAllSchedules().then(schedules => {
+            const sched = schedules.find(s => s.id === scheduleId);
+            if (sched) {
+              sched.lastRunAt = scanRecord.completedAt;
+              sched.lastRunStatus = 'Failed';
+              if (sched.frequency === 'Once') {
+                sched.enabled = false;
+                sched.nextRunAt = null;
+              }
+              storage.saveSchedule(sched);
+            }
+          }).catch(() => {});
+        }
         activeJobs.delete(scanId);
       });
     });
@@ -193,6 +273,16 @@ export class ScannerService {
         scan.completedAt = new Date().toISOString();
         scan.resultNote = 'Scan was cancelled by user.';
         await storage.saveScan(scan);
+        if (scan.scheduleId) {
+          storage.getAllSchedules().then(schedules => {
+            const sched = schedules.find(s => s.id === scan.scheduleId);
+            if (sched) {
+              sched.lastRunAt = scan.completedAt;
+              sched.lastRunStatus = 'Cancelled';
+              storage.saveSchedule(sched);
+            }
+          }).catch(() => {});
+        }
         return scan;
       }
       return null;
@@ -204,6 +294,16 @@ export class ScannerService {
     job.record.progressLabel = 'Scan cancelled by user.';
     job.record.resultNote = 'Scan was cancelled before reaching all pages. Partial findings were preserved.';
     await storage.saveScan(job.record);
+    if (job.record.scheduleId) {
+      storage.getAllSchedules().then(schedules => {
+        const sched = schedules.find(s => s.id === job.record.scheduleId);
+        if (sched) {
+          sched.lastRunAt = job.record.completedAt;
+          sched.lastRunStatus = 'Cancelled';
+          storage.saveSchedule(sched);
+        }
+      }).catch(() => {});
+    }
     activeJobs.delete(scanId);
     return job.record;
   }
@@ -244,7 +344,10 @@ export class ScannerService {
     const trackerTelemetry = [];
     const visitedPages = new Set();
     const failedPages = [];
-    const pageQueue = seeds.map(url => ({ url, depth: 0 }));
+    const pageQueue = Array.isArray(seeds) && seeds.length
+      ? seeds.map(url => ({ url, depth: 1 }))
+      : (isUrlEligible(targetUrl, includePaths, excludePaths) ? [{ url: targetUrl, depth: 1 }] : []);
+    let stopReason = null;
 
     try {
       try {
@@ -299,13 +402,6 @@ export class ScannerService {
         // Validate destination host against private IP ranges
         const isSafe = await isHostSafeFromSSRF(parsed.hostname, allowLocalhost);
         if (!isSafe) {
-          if (request.isNavigationRequest()) {
-            failedPages.push({
-              url: reqUrl,
-              error: `Navigation blocked for SSRF protection: destination "${parsed.hostname}" resolved to a private or reserved network address.`,
-              timestamp: new Date().toISOString(),
-            });
-          }
           return route.abort('blockedbyclient');
         }
 
@@ -349,8 +445,13 @@ export class ScannerService {
 
       let pagesScannedCount = 0;
 
+      if (pageQueue.length === 0) {
+        stopReason = 'no_eligible_pages';
+      }
+
       while (pageQueue.length > 0 && pagesScannedCount < maxPages && !controller.cancelled) {
         if (Date.now() > maxEndTime) {
+          stopReason = 'timed_out';
           record.resultNote = `Scan stopped after reaching the maximum duration limit (${maxDurationSec}s).`;
           break;
         }
@@ -358,16 +459,9 @@ export class ScannerService {
         const { url: currentUrl, depth } = pageQueue.shift();
         if (visitedPages.has(currentUrl)) continue;
 
-        // Path filtering
-        if (includePaths.length > 0) {
-          const pathName = new URL(currentUrl).pathname;
-          const matches = includePaths.some(p => pathName.includes(p));
-          if (!matches) continue;
-        }
-        if (excludePaths.length > 0) {
-          const pathName = new URL(currentUrl).pathname;
-          const blocked = excludePaths.some(p => pathName.includes(p));
-          if (blocked) continue;
+        // Path filtering check
+        if (!isUrlEligible(currentUrl, includePaths, excludePaths)) {
+          continue;
         }
 
         visitedPages.add(currentUrl);
@@ -387,8 +481,13 @@ export class ScannerService {
             timeout: 18000,
           });
 
-          // Wait for dynamic client scripts and cookies to settle
-          await page.waitForTimeout(1200);
+          // Allow asynchronous client scripts, tracker pixels, and CMP tags (e.g., OneTrust, DoubleClick, Snap) to settle
+          try {
+            await page.waitForLoadState('load', { timeout: 4000 });
+          } catch {
+            // Proceed even if full window load takes longer
+          }
+          await page.waitForTimeout(2000);
 
           // Collect all cookies present in context
           const rawCookies = await context.cookies();
@@ -425,7 +524,7 @@ export class ScannerService {
             }
           }
 
-          // Discover links on page if depth permits
+          // Discover links on page if depth permits (Depth 1: seeds only; Depth 2: seeds + 1 jump; Depth 3: seeds + 2 jumps)
           if (depth < maxDepth && pageQueue.length < (maxPages * 2)) {
             try {
               const hrefs = await page.$$eval('a[href]', anchors =>
@@ -437,9 +536,20 @@ export class ScannerService {
                   const parsedHref = new URL(href);
                   // Ensure same origin as final destination
                   if (parsedHref.origin === targetOrigin) {
-                    // Normalize link: strip hash
+                    // Normalize link: strip hash and search query parameter variations for clean page queueing
                     parsedHref.hash = '';
                     const cleanUrl = parsedHref.href;
+
+                    // Exclude non-page static asset files
+                    if (/\.(png|jpe?g|gif|svg|css|js|woff2?|ttf|eot|ico|pdf|zip|mp4|webp)$/i.test(parsedHref.pathname)) {
+                      continue;
+                    }
+
+                    // Check path inclusion/exclusion rules before queueing
+                    if (!isUrlEligible(cleanUrl, includePaths, excludePaths)) {
+                      continue;
+                    }
+
                     if (!visitedPages.has(cleanUrl) && !pageQueue.some(item => item.url === cleanUrl)) {
                       pageQueue.push({ url: cleanUrl, depth: depth + 1 });
                     }
@@ -460,6 +570,14 @@ export class ScannerService {
           });
           record.pagesFailed = failedPages.length;
           record.failedPages = failedPages;
+        }
+      }
+
+      if (!stopReason) {
+        if (pagesScannedCount >= maxPages && pageQueue.length > 0) {
+          stopReason = 'page_limit_reached';
+        } else {
+          stopReason = 'queue_exhausted';
         }
       }
 
@@ -582,18 +700,30 @@ export class ScannerService {
         c => c.category === 'unclassified' || c.classificationStatus === 'Review required'
       );
 
-      const finalStatus = controller.cancelled
-        ? 'cancelled'
-        : failedPages.length > 0 && pagesScannedCount > 0
-        ? 'partially_completed'
-        : failedPages.length > 0 && pagesScannedCount === 0
-        ? 'failed'
-        : 'completed';
+      let finalStatus;
+      if (controller.cancelled) {
+        finalStatus = 'cancelled';
+      } else if (stopReason === 'no_eligible_pages') {
+        finalStatus = 'no_eligible_pages';
+      } else if (stopReason === 'timed_out') {
+        finalStatus = pagesScannedCount > 0 ? 'partially_completed' : 'timed_out';
+      } else if (failedPages.length > 0 && pagesScannedCount === 0) {
+        finalStatus = 'failed';
+      } else if (failedPages.length > 0) {
+        finalStatus = 'partially_completed';
+      } else {
+        finalStatus = 'completed';
+      }
 
       record.status = finalStatus;
       record.completedAt = new Date().toISOString();
       record.progress = 100;
-      record.progressLabel = finalStatus === 'completed' ? 'Scan completed successfully' : `Scan finished with status: ${finalStatus}`;
+      record.stopReason = stopReason;
+      record.progressLabel = finalStatus === 'completed'
+        ? (stopReason === 'page_limit_reached' ? 'Scan finished (page budget reached)' : 'Scan completed successfully')
+        : finalStatus === 'no_eligible_pages'
+        ? 'Scan stopped: No matching eligible pages found'
+        : `Scan finished with status: ${finalStatus.replace(/_/g, ' ')}`;
       record.pagesScanned = pagesScannedCount;
       record.pagesDiscovered = visitedPages.size + pageQueue.length;
       record.failedPages = failedPages;
@@ -618,6 +748,7 @@ export class ScannerService {
         pagesScanned: pagesScannedCount,
         pagesVisitedList: Array.from(visitedPages),
         failedPages,
+        stopReason,
         totalCookies: allCookies.length,
         cookies: allCookies,
         unclassifiedCount: unclassifiedCookies.length,
@@ -638,21 +769,66 @@ export class ScannerService {
         ? ` (Redirected from ${initialUrl} → ${targetUrl})`
         : '';
 
-      record.resultNote = record.resultNote || (
-        finalStatus === 'completed'
-          ? `Discovered ${allCookies.length} cookies across ${pagesScannedCount} pages (${durationSec}s).${redirectSuffix}`
-          : finalStatus === 'partially_completed'
-          ? `Discovered ${allCookies.length} cookies across ${pagesScannedCount} pages (${failedPages.length} failed). Partial report saved.${redirectSuffix}`
-          : 'Scan did not complete successfully.'
-      );
+      if (stopReason === 'no_eligible_pages') {
+        record.resultNote = `No eligible pages were scanned. All provided seed URLs or discovered links were excluded or did not match the include path filter.`;
+      } else if (stopReason === 'timed_out') {
+        record.resultNote = `Scan stopped after reaching the maximum duration limit (${maxDurationSec}s). Discovered ${allCookies.length} cookies across ${pagesScannedCount} scanned pages.`;
+      } else if (stopReason === 'page_limit_reached') {
+        record.resultNote = `Configured page budget (${maxPages} pages) reached. Discovered ${allCookies.length} cookies across ${pagesScannedCount} unique pages (${durationSec}s).${redirectSuffix}`;
+      } else {
+        record.resultNote = record.resultNote || (
+          finalStatus === 'completed'
+            ? `Discovered ${allCookies.length} cookies across ${pagesScannedCount} pages (${durationSec}s).${redirectSuffix}`
+            : finalStatus === 'partially_completed'
+            ? `Discovered ${allCookies.length} cookies across ${pagesScannedCount} pages (${failedPages.length} failed). Partial report saved.${redirectSuffix}`
+            : 'Scan did not complete successfully.'
+        );
+      }
 
       await storage.saveScan(record);
+
+      if (opts.scheduleId) {
+        try {
+          const schedules = await storage.getAllSchedules();
+          const sched = schedules.find(s => s.id === opts.scheduleId);
+          if (sched) {
+            sched.lastRunAt = record.completedAt;
+            sched.lastRunStatus = finalStatus === 'completed' ? 'Completed'
+              : finalStatus === 'partially_completed' ? 'Partially Completed'
+              : finalStatus === 'cancelled' ? 'Cancelled'
+              : 'Failed';
+            if (sched.frequency === 'Once') {
+              sched.enabled = false;
+              sched.nextRunAt = null;
+            }
+            await storage.saveSchedule(sched);
+          }
+        } catch (schedErr) {
+          console.warn(`[Scanner] Could not update schedule ${opts.scheduleId}:`, schedErr.message);
+        }
+      }
     } catch (err) {
       record.status = 'failed';
       record.completedAt = new Date().toISOString();
       record.progressLabel = 'Scan failed.';
       record.resultNote = `Scan failed: ${err.message}`;
       await storage.saveScan(record);
+
+      if (opts.scheduleId) {
+        try {
+          const schedules = await storage.getAllSchedules();
+          const sched = schedules.find(s => s.id === opts.scheduleId);
+          if (sched) {
+            sched.lastRunAt = record.completedAt;
+            sched.lastRunStatus = 'Failed';
+            if (sched.frequency === 'Once') {
+              sched.enabled = false;
+              sched.nextRunAt = null;
+            }
+            await storage.saveSchedule(sched);
+          }
+        } catch {}
+      }
     } finally {
       activeJobs.delete(scanId);
       if (browser) {
@@ -880,8 +1056,7 @@ export class ScannerService {
               const cleanHref = resolved.href;
               const pathname = resolved.pathname.toLowerCase();
 
-              if (excludePaths.some(ex => pathname.startsWith(ex.toLowerCase()))) continue;
-              if (includePaths.length > 0 && !includePaths.some(inc => pathname.startsWith(inc.toLowerCase()))) continue;
+              if (!isUrlEligible(cleanHref, includePaths, excludePaths)) continue;
               if (/\.(png|jpe?g|gif|svg|css|js|woff2?|ttf|eot|ico|pdf|zip|mp4|webp)$/i.test(pathname)) continue;
 
               if (!visitedPages.has(cleanHref) && !pageQueue.includes(cleanHref)) {
@@ -983,6 +1158,22 @@ export class ScannerService {
 
     record.resultNote = `Discovered ${allCookies.length} cookies and ${trackerTelemetry.length} third-party trackers across ${visitedPages.size} page(s) (${durationSec}s).`;
     await storage.saveScan(record);
+
+    if (opts.scheduleId) {
+      try {
+        const schedules = await storage.getAllSchedules();
+        const sched = schedules.find(s => s.id === opts.scheduleId);
+        if (sched) {
+          sched.lastRunAt = record.completedAt;
+          sched.lastRunStatus = finalStatus === 'completed' ? 'Completed' : 'Cancelled';
+          if (sched.frequency === 'Once') {
+            sched.enabled = false;
+            sched.nextRunAt = null;
+          }
+          await storage.saveSchedule(sched);
+        }
+      } catch {}
+    }
     activeJobs.delete(scanId);
   }
 }

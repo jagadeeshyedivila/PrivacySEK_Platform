@@ -34,12 +34,14 @@ export function registerActions(context, ACT) {
     ui.scannerHistoryPage = 1;
     runtime.render();
   };
-  ACT["cc-scans-page"] = p => {
-    ui.scannerHistoryPage = Math.max(1, Number(p) || 1);
+  ACT["cc-scans-page"] = (p, el) => {
+    const pageVal = p || el?.getAttribute("data-arg") || el?.getAttribute("data-page");
+    ui.scannerHistoryPage = Math.max(1, Number(pageVal) || 1);
     runtime.render();
   };
-  ACT["cc-scans-page-size"] = s => {
-    ui.scannerHistoryPageSize = Math.max(1, Number(s) || 10);
+  ACT["cc-scans-page-size"] = (s, el) => {
+    const sizeVal = s || el?.value || el?.getAttribute("data-arg");
+    ui.scannerHistoryPageSize = Math.max(1, Number(sizeVal) || 10);
     ui.scannerHistoryPage = 1;
     runtime.render();
   };
@@ -59,9 +61,10 @@ export function registerActions(context, ACT) {
       ]);
 
       let changed = false;
-      if (Array.isArray(backendHistory) && backendHistory.length > 0) {
+      const scanList = Array.isArray(backendHistory) ? backendHistory : (backendHistory?.scans || []);
+      if (scanList.length > 0) {
         // Merge backend scans into state.scans
-        for (const bScan of backendHistory) {
+        for (const bScan of scanList) {
           const existing = state.scans.find(s => s.id === bScan.id);
           if (!existing) {
             state.scans.push({
@@ -154,6 +157,19 @@ export function registerActions(context, ACT) {
           scan.completedAt = statusData.completedAt || isoNow();
           scan.resultNote = statusData.resultNote;
 
+          // Update matching schedule in state.schedules immediately
+          const linkedSchedule = (state.schedules || []).find(s =>
+            s.id === scan.scheduledId || s.lastScanId === scanId || (s.url === scan.url && s.lastRunStatus === "Running")
+          );
+          if (linkedSchedule) {
+            linkedSchedule.lastRunStatus = scan.status;
+            linkedSchedule.lastRunAt = scan.completedAt;
+            if (linkedSchedule.frequency === "Once") {
+              linkedSchedule.enabled = false;
+              linkedSchedule.nextRunAt = null;
+            }
+          }
+
           // Fetch full report
           try {
             const reportData = await scannerApi.getScanReport(scanId);
@@ -163,6 +179,16 @@ export function registerActions(context, ACT) {
             scan.thirdPartyCount = reportData.report?.thirdPartyDomains?.length || 0;
           } catch {
             // report might not be available if failed immediately
+          }
+
+          // Sync fresh schedules from backend
+          try {
+            const freshSchedules = await scannerApi.getSchedules();
+            if (Array.isArray(freshSchedules)) {
+              state.schedules = freshSchedules;
+            }
+          } catch {
+            // ignore if offline
           }
 
           persist(`Scan ${scan.status.toLowerCase()}: ${scan.resultNote || ""}`);
@@ -234,7 +260,7 @@ export function registerActions(context, ACT) {
     const rawPages = readDialogField(element, "#cc-scan-setup-pages");
     const pages = isDeepScan ? 25 : Number(rawPages);
     if (!isDeepScan && (!Number.isInteger(pages) || pages < 1 || pages > 50)) {
-      runtime.toast("Enter a page limit between 1 and 50");
+      runtime.toast("Maximum pages to scan must be a whole number between 1 and 50.");
       return null;
     }
     const depth = Number(readDialogField(element, "#cc-scan-setup-depth") || 2);
@@ -253,6 +279,12 @@ export function registerActions(context, ACT) {
     const excludePaths = (readDialogField(element, "#cc-scan-exclude-paths") || "")
       .split(",").map(p => p.trim()).filter(Boolean);
 
+    // Schedule specific fields
+    const frequency = readDialogField(element, "#cc-scan-frequency") || "Once";
+    const scheduleTime = readDialogField(element, "#cc-scan-sched-time") || "09:00";
+    const scheduleWeekday = Number(readDialogField(element, "#cc-scan-sched-weekday") || 1);
+    const scheduleMonthDay = Number(readDialogField(element, "#cc-scan-sched-monthday") || 1);
+
     return {
       type,
       url: resolved.baseUrl,
@@ -262,14 +294,25 @@ export function registerActions(context, ACT) {
       duration,
       includePaths,
       excludePaths,
+      frequency,
+      scheduleOptions: {
+        time: scheduleTime,
+        weekday: scheduleWeekday,
+        monthDay: scheduleMonthDay,
+      },
     };
   }
 
   ACT["cc-scan-base-url"] = value => { ui.scanBaseUrl = value; };
   ACT["cc-scan-page-limit"] = value => { ui.scanPageLimit = value; };
   ACT["cc-scan-setup-type"] = (value, element) => {
-    const pageLimitField = element?.closest('[role="dialog"]')?.querySelector("#cc-scan-page-limit-field");
-    if (pageLimitField) pageLimitField.hidden = value === "Deep Scan";
+    const dialog = element?.closest('[role="dialog"]') || document.querySelector('.modal[role="dialog"]');
+    const pageLimitField = dialog?.querySelector("#cc-scan-page-limit-field");
+    if (pageLimitField) {
+      const isDeep = value === "Deep Scan";
+      pageLimitField.hidden = isDeep;
+      pageLimitField.style.display = isDeep ? "none" : "block";
+    }
   };
 
   ACT["cc-run-deep-scan"] = () => {
@@ -311,119 +354,217 @@ export function registerActions(context, ACT) {
       runtime.toast(`Cancellation failed: ${err.message}`);
     }
   };
+        // <button id="cc-scan-advanced-toggle" type="button" class="btn sm" data-act="cc-toggle-scan-advanced" style="background:transparent;border:1px dashed var(--line);color:var(--text-2);">+ Show Advanced Path Filters</button>
+
+
+  let lastSeedAddTimestamp = 0;
 
   ACT["cc-schedule-scan-modal"] = () => {
-    ui.scanSeedCounter = 1;
+    ui.scanSeedCounter = 0;
     const startingUrl = ui.scanBaseUrl || runtime.$("#cc-scan-url")?.value || "";
-    const pageLimit = ui.scanPageLimit || 12;
+    const pageLimit = ui.scanPageLimit || 10;
 
-    runtime.modal("Configure Custom Scan or Schedule", "Choose scan scope, depth, and automated schedule frequency", `
+    runtime.modal("Configure Custom Scan or Schedule", "Define scan budget, starting URL, and automated recurrence", `
       <div class="g g2 cc-scan-setup-fields">
         <div class="field">
           <label for="cc-scan-setup-type">Scan Type</label>
           <select id="cc-scan-setup-type" data-act="cc-scan-setup-type">
-            <option value="Custom Scan" selected>Custom Scan (Configurable limits)</option>
-            <option value="Deep Scan">Deep Scan (Breadth-first crawl up to 25 pages)</option>
+            <option value="Custom Scan" selected>Custom Scan (Targeted configuration)</option>
+            <option value="Deep Scan">Deep Scan (Broad site crawl up to 25 pages)</option>
           </select>
         </div>
         <div class="field cc-scan-page-limit-field" id="cc-scan-page-limit-field">
-          <label for="cc-scan-setup-pages">Maximum Pages to Scan (1–50)</label>
-          <input id="cc-scan-setup-pages" type="number" min="1" max="50" value="${safe(pageLimit)}">
+          <label for="cc-scan-setup-pages">Maximum Pages to Scan (Budget: 1–50)</label>
+          <input id="cc-scan-setup-pages" type="number" min="1" max="50" step="1" value="${safe(pageLimit)}">
+          <small style="color:var(--text-3);font-size:11px;margin-top:2px;">Unique eligible pages budget. The crawler finishes once this limit or all links are scanned.</small>
         </div>
         <div class="field cc-scan-base-field">
-          <label for="cc-scan-setup-url">Target Website URL</label>
+          <label for="cc-scan-setup-url">Target Website URL <span style="color:var(--risk);">*</span></label>
           <input id="cc-scan-setup-url" type="url" placeholder="https://example.com" value="${safe(startingUrl)}">
+          <small style="color:var(--text-3);font-size:11px;margin-top:2px;">Must use HTTP or HTTPS. Fragments (#) are automatically ignored.</small>
         </div>
-        <div class="field">
-          <label for="cc-scan-setup-depth">Crawl Link Depth</label>
-          <select id="cc-scan-setup-depth">
-            <option value="1">Depth 1 (Seed URLs only)</option>
-            <option value="2" selected>Depth 2 (Seed URLs + 1 link jump)</option>
-            <option value="3">Depth 3 (Seed URLs + 2 link jumps)</option>
-          </select>
-        </div>
-        <div class="field">
-          <label for="cc-scan-setup-duration">Max Scan Duration</label>
-          <select id="cc-scan-setup-duration">
-            <option value="60">1 Minute</option>
-            <option value="120" selected>2 Minutes (Recommended)</option>
-            <option value="300">5 Minutes</option>
-          </select>
-        </div>
+       
         <div class="field">
           <label for="cc-scan-frequency">Schedule Frequency</label>
-          <select id="cc-scan-frequency">
-            <option value="Once" selected>One-time Only</option>
-            <option value="Daily">Daily Automated Scan</option>
-            <option value="Weekly">Weekly Automated Scan</option>
-            <option value="Monthly">Monthly Automated Scan</option>
+          <select id="cc-scan-frequency" data-act="cc-scan-frequency-change">
+            <option value="Once" selected>One-time Only (Immediate execution)</option>
+            <option value="Daily">Daily Recurring Scan</option>
+            <option value="Weekly">Weekly Recurring Scan</option>
+            <option value="Monthly">Monthly Recurring Scan</option>
           </select>
         </div>
       </div>
 
-      <div class="g g2" style="margin-top:10px;">
+      <!-- Conditional recurrence controls -->
+      <div id="cc-scan-recurrence-options" class="g g3" style="margin-top:10px;padding:10px;background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:8px;display:none;" hidden>
         <div class="field">
-          <label for="cc-scan-include-paths">Include Paths (comma-separated, optional)</label>
-          <input id="cc-scan-include-paths" type="text" placeholder="/products, /services, /shop">
+          <label for="cc-scan-sched-time">Execution Time</label>
+          <input id="cc-scan-sched-time" type="time" value="09:00">
         </div>
-        <div class="field">
-          <label for="cc-scan-exclude-paths">Exclude Paths (comma-separated, optional)</label>
-          <input id="cc-scan-exclude-paths" type="text" placeholder="/admin, /logout, /login">
+        <div class="field" id="cc-scan-weekday-wrap" style="display:none;" hidden>
+          <label for="cc-scan-sched-weekday">Day of Week</label>
+          <select id="cc-scan-sched-weekday">
+            <option value="1" selected>Monday</option>
+            <option value="2">Tuesday</option>
+            <option value="3">Wednesday</option>
+            <option value="4">Thursday</option>
+            <option value="5">Friday</option>
+            <option value="6">Saturday</option>
+            <option value="0">Sunday</option>
+          </select>
+        </div>
+        <div class="field" id="cc-scan-monthday-wrap" style="display:none;" hidden>
+          <label for="cc-scan-sched-monthday">Day of Month</label>
+          <input id="cc-scan-sched-monthday" type="number" min="1" max="31" value="1">
         </div>
       </div>
 
+      <!-- Additional Starting URLs or Paths -->
       <div class="cc-scan-seeds-heading" style="margin-top:14px;">
-        <div><strong>Additional Starting URLs or Paths</strong><small style="display:block;color:var(--text-3);font-size:11px;">Add specific pages on the target domain, e.g. /pricing, /about</small></div>
+        <div><strong>Additional Starting URLs or Paths</strong><small style="display:block;color:var(--text-3);font-size:11px;">Specify additional entry-point pages on the target origin, e.g. /pricing, /about</small></div>
         <button class="btn sm" type="button" data-act="cc-add-scan-seed">+ Add URL / Path</button>
       </div>
-      <div id="cc-scan-seed-list" class="cc-scan-seed-list">
-        <div class="cc-scan-seed-row">
-          <input class="cc-scan-seed" type="text" placeholder="/services" aria-label="Additional URL or path 1">
-          <button class="btn sm d" type="button" data-act="cc-remove-scan-seed" aria-label="Remove additional URL">×</button>
+      <div id="cc-scan-seed-list" class="cc-scan-seed-list"></div>
+
+      <!-- Advanced Path Filters (Collapsible) -->
+      <div style="margin-top:14px;">
+        <div id="cc-scan-advanced-section" class="g g2" style="margin-top:10px;display:none;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);" hidden>
+          <div class="field">
+            <label for="cc-scan-include-paths">Include Paths (comma-separated)</label>
+            <input id="cc-scan-include-paths" type="text" placeholder="/products, /services, /shop/*">
+            <small style="color:var(--text-3);font-size:11px;margin-top:2px;">If set, only URLs matching these prefixes or wildcards are scanned.</small>
+          </div>
+          <div class="field">
+            <label for="cc-scan-exclude-paths">Exclude Paths (comma-separated)</label>
+            <input id="cc-scan-exclude-paths" type="text" placeholder="/admin, /logout, /login, /api/*">
+            <small style="color:var(--text-3);font-size:11px;margin-top:2px;">Exclusion takes priority over inclusion rules.</small>
+          </div>
         </div>
       </div>
 
       <div class="field cc-scan-frequency-note" style="margin-top:12px;">
-        <span class="cc-note">The Playwright scanner worker runs in an isolated browser environment with SSRF protections. It will inspect cookies (including HttpOnly/SameSite), observe network tracking requests, and test consent banner compliance.</span>
+        <span class="cc-note">The Playwright engine operates in an isolated browser sandbox with real-time SSRF guards. It validates cookies (HTTP, JS, SameSite, Secure), observes dynamic tracking pixels, and tests pre/post consent states.</span>
       </div>
     `, `
       <button class="btn" data-act="close">Cancel</button>
-      <button class="btn" data-act="cc-submit-scan-setup" data-arg="start">Start Real Scan</button>
-      <button class="btn t" data-act="cc-submit-scan-setup" data-arg="schedule">Save Schedule</button>
+      <button class="btn" id="cc-btn-start-scan" data-act="cc-submit-scan-setup" data-arg="start">Scan Now</button>
+      <button class="btn t" id="cc-btn-schedule-scan" data-act="cc-submit-scan-setup" data-arg="schedule" disabled title="Select a recurring frequency (Daily, Weekly, or Monthly) to schedule">Schedule for Later</button>
     `, "drawer-wide");
   };
 
-  ACT["cc-add-scan-seed"] = () => {
-    const list = runtime.$("#cc-scan-seed-list");
-    if (!list) return;
-    const index = ++ui.scanSeedCounter;
-    list.insertAdjacentHTML("beforeend", `
-      <div class="cc-scan-seed-row">
-        <input class="cc-scan-seed" type="text" placeholder="/pricing" aria-label="Additional URL or path ${index}">
-        <button class="btn sm d" type="button" data-act="cc-remove-scan-seed" aria-label="Remove additional URL">×</button>
-      </div>
-    `);
-    list.lastElementChild?.querySelector("input")?.focus();
+  ACT["cc-scan-frequency-change"] = (value, element) => {
+    const dialog = element?.closest('[role="dialog"]') || document.querySelector('.modal[role="dialog"]');
+    const recurFields = dialog?.querySelector("#cc-scan-recurrence-options");
+    const weekdayWrap = dialog?.querySelector("#cc-scan-weekday-wrap");
+    const monthdayWrap = dialog?.querySelector("#cc-scan-monthday-wrap");
+    const schedBtn = dialog?.querySelector("#cc-btn-schedule-scan");
+
+    const isRecurring = value !== "Once";
+    if (recurFields) {
+      recurFields.hidden = !isRecurring;
+      recurFields.style.display = isRecurring ? "grid" : "none";
+    }
+    if (weekdayWrap) {
+      weekdayWrap.hidden = value !== "Weekly";
+      weekdayWrap.style.display = value === "Weekly" ? "block" : "none";
+    }
+    if (monthdayWrap) {
+      monthdayWrap.hidden = value !== "Monthly";
+      monthdayWrap.style.display = value === "Monthly" ? "block" : "none";
+    }
+    if (schedBtn) {
+      schedBtn.disabled = !isRecurring;
+      if (!isRecurring) {
+        schedBtn.title = "Select a recurring frequency (Daily, Weekly, or Monthly) to schedule";
+      } else {
+        schedBtn.removeAttribute("title");
+      }
+    }
   };
 
-  ACT["cc-remove-scan-seed"] = (_value, element) => {
+  ACT["cc-toggle-scan-advanced"] = (_value, element) => {
+    const dialog = element?.closest('[role="dialog"]') || document.querySelector('.modal[role="dialog"]');
+    const advSection = dialog?.querySelector("#cc-scan-advanced-section");
+    const toggleBtn = dialog?.querySelector("#cc-scan-advanced-toggle") || element;
+    if (advSection) {
+      const willHide = !advSection.hidden;
+      advSection.hidden = willHide;
+      advSection.style.display = willHide ? "none" : "block";
+      if (toggleBtn) {
+        toggleBtn.textContent = willHide ? "+ Show Advanced Path Filters" : "- Hide Advanced Path Filters";
+      }
+    }
+  };
+
+  ACT["cc-add-scan-seed"] = (_arg, element) => {
+    const now = Date.now();
+    // Guard against rapid duplicate clicks within 350ms
+    if (now - lastSeedAddTimestamp < 350) return;
+    lastSeedAddTimestamp = now;
+
+    const dialog = element?.closest('[role="dialog"]') || document.querySelector('.modal[role="dialog"]');
+    const seedList = dialog?.querySelector("#cc-scan-seed-list");
+    if (!seedList) return;
+
+    // Check if the last seed input row is already empty
+    const existingInputs = seedList.querySelectorAll(".cc-scan-seed");
+    if (existingInputs.length > 0) {
+      const lastInput = existingInputs[existingInputs.length - 1];
+      if (!lastInput.value || !lastInput.value.trim()) {
+        // Last input is still empty, do not add another empty box, simply focus it
+        lastInput.focus();
+        return;
+      }
+    }
+
+    ui.scanSeedCounter = (ui.scanSeedCounter || 0) + 1;
+    const row = document.createElement("div");
+    row.className = "cc-scan-seed-row";
+    row.innerHTML = `
+      <input class="cc-scan-seed" type="text" placeholder="/pricing" aria-label="Additional URL or path ${ui.scanSeedCounter}">
+      <button class="btn sm d" type="button" data-act="cc-remove-scan-seed" aria-label="Remove additional URL">×</button>
+    `;
+    seedList.appendChild(row);
+    const input = row.querySelector("input");
+    if (input) input.focus();
+  };
+
+  ACT["cc-remove-scan-seed"] = (_arg, element) => {
     const row = element?.closest(".cc-scan-seed-row");
-    if (row) row.remove();
+    if (row) {
+      row.remove();
+    }
   };
 
   ACT["cc-submit-scan-setup"] = async (mode, element) => {
+    if (element?.disabled) return;
     const setup = readScanSetup(element);
     if (!setup) return;
 
+    const startBtn = element?.closest('[role="dialog"]')?.querySelector("#cc-btn-start-scan");
+    const schedBtn = element?.closest('[role="dialog"]')?.querySelector("#cc-btn-schedule-scan");
+    if (startBtn) startBtn.disabled = true;
+    if (schedBtn) schedBtn.disabled = true;
+
     if (mode === "schedule") {
-      const frequency = readDialogField(element, "#cc-scan-frequency") || "Weekly";
+      if (setup.frequency === "Once") {
+        runtime.toast("Please select Daily, Weekly, or Monthly for automated recurrence, or click Scan Now for an immediate scan.");
+        if (startBtn) startBtn.disabled = false;
+        if (schedBtn) schedBtn.disabled = false;
+        return;
+      }
       try {
         const schedule = await scannerApi.createSchedule({
           url: setup.url,
           type: setup.type,
-          frequency,
+          frequency: setup.frequency,
           pages: setup.pages,
+          depth: setup.depth,
+          duration: setup.duration,
+          includePaths: setup.includePaths,
+          excludePaths: setup.excludePaths,
           urls: setup.urls,
+          options: setup.scheduleOptions,
           enabled: true,
         });
 
@@ -432,9 +573,11 @@ export function registerActions(context, ACT) {
         ui.scanBaseUrl = setup.url;
         ui.scanPageLimit = setup.pages;
         runtime.closeOv();
-        persist(`${setup.type} scheduled with ${frequency.toLowerCase()} frequency`);
+        persist(`${setup.type} scheduled with ${setup.frequency.toLowerCase()} frequency`);
       } catch (err) {
         runtime.toast(`Failed to save schedule: ${err.message}`);
+        if (startBtn) startBtn.disabled = false;
+        if (schedBtn) schedBtn.disabled = false;
       }
       return;
     }
@@ -481,6 +624,9 @@ export function registerActions(context, ACT) {
       schedule.lastRunAt = isoNow();
       schedule.lastRunStatus = "Running";
       schedule.lastScanId = serverScan.id;
+      if (schedule.frequency === "Once") {
+        schedule.nextRunAt = null;
+      }
       persist("Scheduled scan initiated");
 
       startPolling(serverScan.id);
@@ -537,20 +683,59 @@ export function registerActions(context, ACT) {
     const failedList = report?.failedPages || [];
     const durationSec = scan.completedAt && scan.createdAt ? Math.round((new Date(scan.completedAt) - new Date(scan.createdAt)) / 1000) : null;
 
-    const cookieRows = cookies.map((c, idx) => `
+    const cookieRows = cookies.map((c, idx) => {
+      const isUnclassified = c.category === "unclassified" || c.classificationStatus === "Review required";
+      const catObj = (state.categories || []).find(cat => cat.id === c.category);
+      const catLabel = catObj?.name || c.category;
+
+      const catPillHtml = runtime.pill(
+        c.category === "necessary" ? "ok"
+        : c.category === "analytics" ? "info"
+        : c.category === "marketing" ? "risk"
+        : c.category === "advertising" ? "risk"
+        : c.category === "functional" ? "mask"
+        : c.category === "social_media" ? "dim"
+        : "n",
+        catLabel
+      );
+
+      return `
       <tr class="cc-report-cookie-row" data-search="${safe(`${c.name} ${c.domain} ${c.provider} ${c.category}`).toLowerCase()}" data-category="${safe(c.category)}">
-        <td style="width:26%;">
+        <td style="width:24%;">
           <span class="cc-report-cookie-title" title="${safe(c.name)}">${safe(c.name)}</span>
           <span class="cc-report-cookie-meta" title="${safe(c.path)} · ${safe(c.duration)}">${safe(c.path)} · ${safe(c.duration)}</span>
         </td>
-        <td style="width:20%;font-family:var(--f-mono);font-size:11px;">
+        <td style="width:18%;font-family:var(--f-mono);font-size:11px;">
           <span class="cc-report-cell-truncate" title="${safe(c.domain)}">${safe(c.domain)}</span>
         </td>
         <td style="width:14%;">
           <span class="cc-report-cell-truncate" title="${safe(c.provider || "Unknown")}">${safe(c.provider || "Unknown")}</span>
         </td>
-        <td style="width:14%;">
-          ${runtime.pill(c.category === "necessary" ? "ok" : c.category === "analytics" ? "info" : c.category === "advertising" ? "risk" : "n", c.category)}
+        <td style="width:18%;">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+            ${isUnclassified ? `
+              <select class="cc-report-cat-select" data-act="cc-report-classify-cookie" data-scan-id="${safe(scan.id)}" data-cookie-name="${safe(c.name)}" style="height:26px;font-size:11px;padding:2px 6px;border-radius:6px;border:1px solid var(--accent);background:var(--surface-2);color:var(--text);font-weight:600;cursor:pointer;" title="Classify cookie category">
+                <option value="" disabled selected>Classify…</option>
+                <option value="necessary">Necessary</option>
+                <option value="functional">Functional</option>
+                <option value="analytics">Analytics</option>
+                <option value="marketing">Marketing</option>
+                <option value="advertising">Advertising</option>
+                <option value="social_media">Social Media</option>
+              </select>
+            ` : `
+              ${catPillHtml}
+              <select class="cc-report-cat-select-sm" data-act="cc-report-classify-cookie" data-scan-id="${safe(scan.id)}" data-cookie-name="${safe(c.name)}" style="height:20px;font-size:10px;padding:0 3px;border-radius:4px;border:1px solid var(--line-2);background:transparent;color:var(--text-3);cursor:pointer;" title="Change category">
+                <option value="" disabled selected>Edit</option>
+                <option value="necessary">Necessary</option>
+                <option value="functional">Functional</option>
+                <option value="analytics">Analytics</option>
+                <option value="marketing">Marketing</option>
+                <option value="advertising">Advertising</option>
+                <option value="social_media">Social Media</option>
+              </select>
+            `}
+          </div>
         </td>
         <td style="width:12%;">
           ${runtime.pill(c.confidence === "high" ? "ok" : c.confidence === "medium" ? "info" : "risk", c.confidence || "Needs Review")}
@@ -563,7 +748,8 @@ export function registerActions(context, ACT) {
           </span>
         </td>
       </tr>
-    `).join("");
+    `;
+    }).join("");
 
     const trackerRows = trackers.map(t => `
       <tr>
@@ -646,6 +832,7 @@ export function registerActions(context, ACT) {
               <button class="btn sm cc-report-cat-btn active" data-act="cc-filter-report-category" data-arg="all">All (${cookies.length})</button>
               <button class="btn sm cc-report-cat-btn" data-act="cc-filter-report-category" data-arg="necessary">Necessary (${cookies.filter(c => c.category === 'necessary').length})</button>
               <button class="btn sm cc-report-cat-btn" data-act="cc-filter-report-category" data-arg="analytics">Analytics (${cookies.filter(c => c.category === 'analytics').length})</button>
+              <button class="btn sm cc-report-cat-btn" data-act="cc-filter-report-category" data-arg="marketing">Marketing (${cookies.filter(c => c.category === 'marketing').length})</button>
               <button class="btn sm cc-report-cat-btn" data-act="cc-filter-report-category" data-arg="advertising">Advertising (${cookies.filter(c => c.category === 'advertising').length})</button>
               <button class="btn sm cc-report-cat-btn" data-act="cc-filter-report-category" data-arg="functional">Functional (${cookies.filter(c => c.category === 'functional').length})</button>
               <button class="btn sm cc-report-cat-btn" data-act="cc-filter-report-category" data-arg="unclassified">Needs Review (${cookies.filter(c => c.category === 'unclassified' || c.classificationStatus === 'Review required').length})</button>
@@ -801,6 +988,106 @@ export function registerActions(context, ACT) {
     `, "drawer-wide");
   };
 
+  // Action to classify an unclassified cookie from the scan report
+  ACT["cc-report-classify-cookie"] = async (newCategory, selectEl) => {
+    if (!newCategory || !selectEl) return;
+    const scanId = selectEl.getAttribute("data-scan-id");
+    const cookieName = selectEl.getAttribute("data-cookie-name");
+    const scan = state.scans.find(s => s.id === scanId);
+    if (!scan) return;
+
+    const cookies = scan.report?.cookies || [];
+    const targetCookie = cookies.find(c => c.name === cookieName);
+    if (!targetCookie) return;
+
+    targetCookie.category = newCategory;
+    targetCookie.classificationStatus = "Reviewed";
+    targetCookie.confidence = "manual";
+    const catObj = (state.categories || []).find(cat => cat.id === newCategory);
+    targetCookie.purpose = catObj?.name || newCategory;
+
+    // Recalculate scan counts
+    scan.report.unclassifiedCount = cookies.filter(
+      c => c.category === "unclassified" || c.classificationStatus === "Review required"
+    ).length;
+    scan.unclassifiedCount = scan.report.unclassifiedCount;
+
+    // 1. Sync consistently to Cookie Inventory (state.cookies)
+    let invCookie = (state.cookies || []).find(
+      c => c.name.toLowerCase() === cookieName.toLowerCase()
+    );
+    if (invCookie) {
+      invCookie.category = newCategory;
+      invCookie.classificationStatus = "Reviewed";
+      invCookie.purpose = targetCookie.purpose;
+      try {
+        await cookieApi.updateCookie(invCookie.id, {
+          category: newCategory,
+          classificationStatus: "Reviewed",
+          purpose: targetCookie.purpose,
+        });
+      } catch (err) {
+        console.warn("Could not update cookie inventory in DB:", err.message);
+      }
+    } else {
+      const newInventoryCookie = {
+        name: targetCookie.name,
+        category: newCategory,
+        domain: targetCookie.domain || (scan.url ? new URL(scan.url).hostname : "demo.privacysek.example"),
+        path: targetCookie.path || "/",
+        party: targetCookie.party || "First-party",
+        provider: targetCookie.provider || "Discovered on Website",
+        duration: targetCookie.duration || "Session",
+        description: targetCookie.description || ("Discovered by Playwright scan on " + scan.url),
+        httpOnly: Boolean(targetCookie.httpOnly),
+        secure: Boolean(targetCookie.secure),
+        sameSite: targetCookie.sameSite || "Lax",
+        classificationStatus: "Reviewed",
+        purpose: targetCookie.purpose,
+        lastDetected: isoNow(),
+        sourcePage: scan.url,
+        scanId: scan.id,
+      };
+      try {
+        const saved = await cookieApi.createCookie(newInventoryCookie);
+        state.cookies.unshift(saved);
+      } catch {
+        state.cookies.unshift({
+          id: "cookie-" + Date.now() + "-" + Math.floor(Math.random() * 1000),
+          ...newInventoryCookie,
+        });
+      }
+    }
+
+    // 2. Persist update to MongoDB for scan report
+    try {
+      await scannerApi.updateScanCookie(scan.id, {
+        cookieName: targetCookie.name,
+        category: newCategory,
+        classificationStatus: "Reviewed",
+        confidence: "manual",
+        purpose: targetCookie.purpose,
+      });
+    } catch (err) {
+      console.warn("Could not save scan report update to scanner DB:", err.message);
+    }
+
+    // 3. Ensure Cookie Consent configuration reflects the category
+    if (state.visitor && state.visitor.categories && state.visitor.categories[newCategory] === undefined) {
+      state.visitor.categories[newCategory] = false;
+    }
+    if (state.draft) {
+      persist();
+    } else {
+      runtime.render();
+    }
+
+    runtime.toast('Cookie "' + cookieName + '" categorized as ' + (catObj?.name || newCategory) + ' and saved to Inventory.');
+
+    // 4. Update the Report modal DOM so user sees the change immediately
+    ACT["cc-view-scan-report"](scan.id);
+  };
+
   // Report modal interactive tab switching
   ACT["cc-switch-report-tab"] = (tabName, element) => {
     const modal = element?.closest(".cc-report-modal") || document.querySelector(".cc-report-modal");
@@ -901,15 +1188,27 @@ export function registerActions(context, ACT) {
         existing.secure = dc.secure;
         existing.httpOnly = dc.httpOnly;
         existing.duration = dc.duration || existing.duration;
+        if (dc.category && dc.category !== "unclassified") {
+          existing.category = dc.category;
+          existing.classificationStatus = "Reviewed";
+        }
         updatedCount += 1;
+        try {
+          await cookieApi.updateCookie(existing.id, {
+            lastDetected: existing.lastDetected,
+            secure: existing.secure,
+            httpOnly: existing.httpOnly,
+            duration: existing.duration,
+          });
+        } catch (e) {
+          console.warn("Could not sync updated cookie to DB:", e.message);
+        }
       } else {
         const newRecord = {
-          id: `cookie-scanned-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
           name: dc.name,
           category: dc.category && dc.category !== "unclassified" ? dc.category : "functional",
           domain: dc.domain || new URL(scan.url).hostname,
           path: dc.path || "/",
-          purpose: state.categories.find(c => c.id === dc.category)?.name || "Discovered Cookie",
           party: dc.party || "First-party",
           provider: dc.provider || "Discovered on Website",
           duration: dc.duration || "Session",
@@ -917,13 +1216,24 @@ export function registerActions(context, ACT) {
           httpOnly: Boolean(dc.httpOnly),
           secure: Boolean(dc.secure),
           sameSite: dc.sameSite || "Lax",
-          lastDetected: isoNow(),
-          sourcePage: scan.url,
-          classificationStatus: dc.category && dc.category !== "unclassified" ? "Reviewed" : "Review required",
-          scanId: scan.id,
         };
-        state.cookies.unshift(newRecord);
-        addedCount += 1;
+        try {
+          const saved = await cookieApi.createCookie(newRecord);
+          state.cookies.unshift(saved);
+          addedCount += 1;
+        } catch {
+          const fallback = {
+            id: `cookie-scanned-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            ...newRecord,
+            purpose: state.categories.find(c => c.id === dc.category)?.name || "Discovered Cookie",
+            lastDetected: isoNow(),
+            sourcePage: scan.url,
+            classificationStatus: dc.category && dc.category !== "unclassified" ? "Reviewed" : "Review required",
+            scanId: scan.id,
+          };
+          state.cookies.unshift(fallback);
+          addedCount += 1;
+        }
       }
     }
 

@@ -51,6 +51,13 @@ export const scannerApi = {
     });
   },
 
+  async updateScanCookie(scanId, cookieData) {
+    return await request(`/api/scanner/scan/${scanId}/cookie`, {
+      method: 'PATCH',
+      body: JSON.stringify(cookieData),
+    });
+  },
+
   async getHistory(params = {}) {
     const q = new URLSearchParams();
     if (params.page) q.append('page', params.page);

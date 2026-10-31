@@ -75,6 +75,87 @@ cookieRouter.get('/state', async (_req, res) => {
 });
 
 // -------------------------------------------------------------
+// COOKIE CATEGORIES / PURPOSES
+// -------------------------------------------------------------
+cookieRouter.get('/categories', async (_req, res) => {
+  try {
+    const col = await getCollection('cookie_categories');
+    const categories = await col.find({}, { projection: { _id: 0 } }).toArray();
+    res.json(categories);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+cookieRouter.post('/categories', async (req, res) => {
+  try {
+    const { id, name, description = '', required = false, defaultState = false, showInPref = true } = req.body;
+    if (!id || !name) {
+      return res.status(400).json({ error: 'Category ID and Name are required.' });
+    }
+
+    const col = await getCollection('cookie_categories');
+    const cleanId = id.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    
+    const existing = await col.findOne({ id: cleanId });
+    if (existing) {
+      return res.status(409).json({ error: `Category with ID '${cleanId}' already exists.` });
+    }
+
+    const newCategory = {
+      id: cleanId,
+      name: name.trim(),
+      description: description.trim() || name.trim(),
+      required: Boolean(required),
+      defaultState: Boolean(defaultState),
+      showInPref: Boolean(showInPref),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    await col.insertOne(newCategory);
+    const { _id, ...clean } = newCategory;
+    res.status(201).json(clean);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+cookieRouter.put('/categories/:id', async (req, res) => {
+  try {
+    const col = await getCollection('cookie_categories');
+    const { id, _id, ...updates } = req.body;
+    updates.updatedAt = new Date().toISOString();
+
+    const result = await col.findOneAndUpdate(
+      { id: req.params.id },
+      { $set: updates },
+      { returnDocument: 'after', projection: { _id: 0 } }
+    );
+    if (!result) return res.status(404).json({ error: 'Category not found.' });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+cookieRouter.delete('/categories/:id', async (req, res) => {
+  try {
+    const col = await getCollection('cookie_categories');
+    const target = await col.findOne({ id: req.params.id });
+    if (!target) return res.status(404).json({ error: 'Category not found.' });
+    if (target.required) {
+      return res.status(400).json({ error: 'Cannot delete required essential category.' });
+    }
+
+    await col.deleteOne({ id: req.params.id });
+    res.json({ success: true, message: 'Category deleted from MongoDB.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// -------------------------------------------------------------
 // COOKIE INVENTORY
 // -------------------------------------------------------------
 cookieRouter.get('/inventory', async (req, res) => {
