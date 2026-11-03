@@ -2,6 +2,7 @@ import React from "react";
 import { useState, useEffect } from "react";
 import AppLayout from "./app/AppLayout.jsx";
 import { platformApi } from "./platform/platformApi.js";
+import { hydrateModuleStores } from "./platform/moduleStore.js";
 import sampleData from "./data/sampleData.js";
 
 export default function App() {
@@ -13,21 +14,23 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const initData = await platformApi.fetchInitData();
+      const fetchPromise = platformApi.fetchInitData();
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Backend connection timeout")), 1200)
+      );
+      const initData = await Promise.race([fetchPromise, timeoutPromise]);
       if (!initData?.org?.short || !Array.isArray(initData.guard?.approvals)) {
         throw new Error("Platform data is not initialized. Restart the backend to seed demo data, or run npm run migrate.");
       }
+      // Editable ROPA, Consent and Discovery records; a store that fails to load runs on demo data
+      await hydrateModuleStores();
       setData(initData);
     } catch (err) {
-      console.warn("[PrivacySEK] Backend initialization failed:", err);
-      // If deployed to cloud (e.g. Vercel) and backend is not yet reachable, automatically boot demo dataset
-      const isRemote = typeof window !== 'undefined' && !['localhost', '127.0.0.1'].includes(window.location.hostname);
-      if (isRemote) {
-        console.info("[PrivacySEK] Cloud demo mode active: running with comprehensive sample data.");
-        setData(sampleData);
-        return;
-      }
-      setError(err.message || "Failed to connect to backend server / MongoDB.");
+      console.warn("[PrivacySEK] Backend initialization failed or timed out:", err);
+      // Auto-fallback to comprehensive sample data for demo mode
+      console.info("[PrivacySEK] Running in Demo Mode with sample data.");
+      setData(sampleData);
+      return;
     } finally {
       setLoading(false);
     }

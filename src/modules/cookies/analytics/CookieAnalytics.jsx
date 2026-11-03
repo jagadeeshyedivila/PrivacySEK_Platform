@@ -1,3 +1,5 @@
+import { computeRegionalInsights, renderRegionalPanels, locate } from "./regionalInsights.js";
+
 export function createRenderer(context) {
   const {
     state, runtime, ui, TOP_TABS, CONFIG_NAV_SECTIONS, REGIONS,
@@ -120,6 +122,13 @@ export function createRenderer(context) {
       (activeRegion === "all" || r.region === activeRegion) &&
       matchesDomain(r.property || "")
     );
+
+    // Regional views ignore the location filter so every location stays comparable
+    const regionalRecords = rawRecords.filter(r => inDateRange(r.timestamp) && matchesDomain(r.property || ""));
+    const regionalInsights = computeRegionalInsights(regionalRecords, rawCookies);
+    const crossInsights = activeRegion === "all" ? regionalInsights : computeRegionalInsights(filteredRecords, rawCookies);
+    const locationOptions = Array.from(new Set(rawRecords.map(r => r.region).filter(Boolean)))
+      .sort((a, b) => locate({ region: a }).jurisdiction.localeCompare(locate({ region: b }).jurisdiction) || a.localeCompare(b));
 
     const pageViews = (state.pageViews || []).filter(view => inDateRange(`${view.date}T00:00:00.000Z`));
 
@@ -370,6 +379,13 @@ export function createRenderer(context) {
               </select>
             </label>
             <label>
+              <span>Visitor location</span>
+              <select data-act="cc-dashboard-region" aria-label="Filter consent receipts by visitor location">
+                <option value="all" ${activeRegion === "all" ? "selected" : ""}>All Locations</option>
+                ${locationOptions.map(l => `<option value="${safe(l)}" ${activeRegion === l ? "selected" : ""}>${safe(l)}</option>`).join("")}
+              </select>
+            </label>
+            <label>
               <span>Cookie category</span>
               <select data-act="cc-dashboard-category" aria-label="Filter cookie category">
                 <option value="all" ${activeCategory === "all" ? "selected" : ""}>All Categories</option>
@@ -492,6 +508,9 @@ export function createRenderer(context) {
               <div class="cc-dashboard-choices">${choiceRows}</div>
             ` : `<div class="cc-dashboard-empty">No consent receipts match the selected filters.</div>`}
           </section>
+
+          <!-- Regional & cross-border consent analytics -->
+          ${renderRegionalPanels({ safe }, regionalInsights, crossInsights, { activeRegion, dashboardLink })}
 
           <!-- Discovery & Operations Status (Left Panel) -->
           <section class="cc-dashboard-panel">

@@ -2,10 +2,10 @@ import express from 'express';
 import cors from 'cors';
 import { startSchedulerDaemon } from './scheduler.js';
 import { connectDB, closeDB } from './db.js';
-import { runMigration } from './migrate.js';
 import { cookieRouter } from './routes/cookieRoutes.js';
 import { platformRouter } from './routes/platformRoutes.js';
 import { scannerRouter } from './routes/scannerRoutes.js';
+import { storeRouter } from './routes/storeRoutes.js';
 
 const app = express();
 const PORT = process.env.PORT || process.env.SCANNER_PORT || 3001;
@@ -18,22 +18,12 @@ app.use(express.json());
 app.use('/api/cookies', cookieRouter);
 app.use('/api/platform', platformRouter);
 app.use('/api/scanner', scannerRouter);
+app.use('/api/store', storeRouter);
 
 // Start the server with MongoDB connection
 async function startServer() {
   try {
-    const db = await connectDB();
-    const settings = await db.collection('platform_settings').findOne(
-      { key: 'org_settings' },
-      { projection: { _id: 1 } },
-    );
-
-    if (!settings) {
-      console.log('[Setup] No platform data found. Initializing demo data in MongoDB...');
-      await closeDB();
-      await runMigration();
-      await connectDB();
-    }
+    await connectDB();
   } catch (err) {
     console.error('[FATAL] Backend could not establish MongoDB connection:', err.message);
     process.exit(1);
