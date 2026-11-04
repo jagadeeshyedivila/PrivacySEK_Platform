@@ -16,4 +16,4 @@ export const I = {
  chevronLeft:P('<path d="M15 18l-6-6 6-6"/>'), chevronRight:P('<path d="M9 18l6-6 6-6"/>'),
  arrow:P('<path d="M5 12h14M13 6l6 6-6 6"/>'), db:P('<ellipse cx="12" cy="5.5" rx="7" ry="2.5"/><path d="M5 5.5v13c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-13M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5"/>')
 };
-export const MARK = '<svg width="28" height="28" viewBox="0 0 40 40" aria-hidden="true"><rect width="40" height="40" rx="11" fill="#14B8A6"/><path d="M27.6 13.2c-1.6-2.3-4.3-3.7-7.4-3.7-4.6 0-7.9 2.7-7.9 6.3 0 3.4 3.1 4.8 7.6 5.8" fill="none" stroke="#0B1220" stroke-width="3.6" stroke-linecap="round"/><path d="M19.9 21.6c4.5 1 7.8 2.4 7.8 5.9 0 3.6-3.4 6.2-8 6.2-3.2 0-6-1.4-7.6-3.8" fill="none" stroke="#FFFFFF" stroke-width="3.6" stroke-linecap="round"/><circle cx="29.2" cy="30.6" r="2.1" fill="#0B1220"/></svg>';
+export const MARK = '<img class="brand-mark" src="/logo-mark.png" width="32" height="32" alt="" aria-hidden="true">';
