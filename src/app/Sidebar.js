@@ -21,7 +21,7 @@ export function renderSidebar({ D, I, MARK, NAV, S }) {
 
   return '<nav class="rail'+(isCollapsed?' collapsed':'')+'" id="rail" aria-label="Main">'+
     '<div class="rail-top">'+
-      '<div class="rail-brand">'+MARK+'<span class="word">Privacy<b>SEK</b></span></div>'+
+      '<div class="rail-brand">'+MARK+'<span class="word" aria-label="PrivacySEK"><span class="word-name">Privacy<b>SEK</b></span><small class="word-tag">Protect your privacy</small></span></div>'+
       '<button class="ibtn rail-collapse-btn" data-act="toggle-sidebar" aria-label="'+toggleLabel+'" title="'+toggleTitle+'">'+toggleIcon+'</button>'+
     '</div>'+
     '<button class="org" data-act="bu" title="'+D.org.name+' · '+D.org.bu[S.bu]+'"><span class="olg">'+D.org.short+'</span><span class="org-meta"><b>'+D.org.name+'</b><small id="bu-l">'+D.org.bu[S.bu]+'</small></span><span class="org-caret" style="color:var(--rail-dim)">⌄</span></button>'+

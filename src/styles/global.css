@@ -49,8 +49,11 @@ a{color:var(--accent)}
 .rail{background:var(--rail);color:var(--rail-text);display:flex;flex-direction:column;min-height:0;border-right:1px solid rgba(255,255,255,.04);position:relative;transition:width .22s cubic-bezier(.2,0,0,1)}
 .rail-top{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:14px 12px 12px 14px;min-height:56px}
 .rail-brand{display:flex;align-items:center;gap:10px;min-width:0;overflow:hidden}
-.rail-top .word{font-weight:600;font-size:17px;color:#fff;letter-spacing:-.02em;white-space:nowrap}
-.rail-top .word b{color:#2DD4BF;font-weight:600}
+.brand-mark{flex:none;width:32px;height:32px;object-fit:contain}
+.rail-top .word{display:grid;gap:1px;white-space:nowrap;line-height:1}
+.rail-top .word-name{font-weight:800;font-size:17px;color:#fff;letter-spacing:.04em;text-transform:uppercase}
+.rail-top .word-name b{font-weight:800;color:#2F8CFF;background:linear-gradient(90deg,#1E6BFF,#22B8FF);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.rail-top .word-tag{font-size:10.5px;font-weight:500;color:var(--rail-dim);letter-spacing:.02em}
 .rail-collapse-btn{width:28px;height:28px;border-radius:7px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);color:var(--rail-dim);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex:none;transition:all .15s ease}
 .rail-collapse-btn:hover{background:rgba(255,255,255,.1);color:#fff;border-color:rgba(255,255,255,.2)}
 .rail-collapse-btn svg{width:14px;height:14px}
