@@ -1,11 +1,11 @@
 export const TOP_TABS = [
+    ["dashboard", "Overview & Analytics"],
   ["builder", "Banner Configuration"],
   ["scanner", "Cookie Scanner"],
   ["inventory", "Cookie Categories"],
   ["install", "Implementation"],
   ["blocking", "Auto Cookie Blocking"],
   ["records", "Consent Records"],
-  ["dashboard", "Overview & Analytics"],
 ];
 
 export const CONFIG_NAV_SECTIONS = [

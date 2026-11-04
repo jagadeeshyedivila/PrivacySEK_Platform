@@ -12,7 +12,7 @@
  */
 
 const KNOWN_COOKIE_RULES = [
-  // MARKETING & CAMPAIGN ATTRIBUTION (OneTrust / PrivacyPillar standard)
+  // MARKETING & CAMPAIGN ATTRIBUTION (OneTrust / PrivacySEK standard)
   {
     pattern: /^(TapAd_.*|tapad_.*)$/i,
     category: 'marketing',

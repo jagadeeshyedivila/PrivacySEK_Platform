@@ -8,6 +8,7 @@ import { createMarkupHelpers } from "../components/ui/markup.js";
 import { I, MARK } from "../components/icons/icons.js";
 import { createRuntimeHelpers, escapeHtml } from "../utils/helpers.js";
 import { formatNumber } from "../utils/formatters.js";
+import { onStoreError } from "./moduleStore.js";
 let mounted = false;
 
 /**
@@ -21,6 +22,7 @@ var D = data, d = document;
 var $ = function(s, r){ return (r||d).querySelector(s); };
 var esc = escapeHtml;
 var fmt = formatNumber;
+onStoreError(function(err){ console.warn("[Store]", err.message); toast(err.message); });
 
 /* ---------------- icons ---------------- */
 
@@ -334,20 +336,25 @@ var moduleRuntime = { $, D, I, S, bar, btn, card, closeOv, copyButton, curTab, d
 Object.keys(MODULE_RENDERERS).forEach(function(key){ VIEWS[key] = MODULE_RENDERERS[key](moduleRuntime); });
 Object.keys(MODULE_ACTIONS).forEach(function(key){ MODULE_ACTIONS[key](moduleRuntime, ACT, AFTER); });
 
+/* Global listeners are tracked so unmounting removes them. Without this, each remount
+   (e.g. a dev hot reload) stacks another set and one click runs every action several times. */
+var listeners = [];
+function on(target, type, fn){ target.addEventListener(type, fn); listeners.push([target, type, fn]); }
+
 /* ======================= EVENTS ======================= */
-d.addEventListener("click", function(e){
+on(d, "click", function(e){
   var g=e.target.closest("[data-go]"); if(g){ e.preventDefault(); closeOv(); go(g.getAttribute("data-go")); return; }
   var a=e.target.closest("[data-act]"); if(!a || a.tagName==="SELECT" || a.disabled) return;
   var fn=ACT[a.getAttribute("data-act")]; if(fn){ e.preventDefault(); fn(a.getAttribute("data-arg"), a); }
 });
-d.addEventListener("change", function(e){
+on(d, "change", function(e){
   var a=e.target.closest("select[data-act]");
   if(a && ACT[a.getAttribute("data-act")]) ACT[a.getAttribute("data-act")](a.value, a);
   var c=e.target.closest("[data-change-act]");
   if(c && ACT[c.getAttribute("data-change-act")]) ACT[c.getAttribute("data-change-act")](c.checked ? "true" : "false", c);
 });
-d.addEventListener("input", function(e){ var a=e.target.closest("[data-input-act]"); if(a && ACT[a.getAttribute("data-input-act")]) ACT[a.getAttribute("data-input-act")](a.value, a); });
-d.addEventListener("mouseover", function(e){
+on(d, "input", function(e){ var a=e.target.closest("[data-input-act]"); if(a && ACT[a.getAttribute("data-input-act")]) ACT[a.getAttribute("data-input-act")](a.value, a); });
+on(d, "mouseover", function(e){
   var btn = e.target.closest(".app.collapsed .nav button, #rail.collapsed .nav button");
   if (!btn) return;
   var tip = btn.querySelector(".rail-tooltip");
@@ -356,7 +363,7 @@ d.addEventListener("mouseover", function(e){
     tip.style.top = (rect.top + rect.height / 2) + "px";
   }
 });
-d.addEventListener("focusin", function(e){
+on(d, "focusin", function(e){
   var btn = e.target.closest(".app.collapsed .nav button, #rail.collapsed .nav button");
   if (!btn) return;
   var tip = btn.querySelector(".rail-tooltip");
@@ -365,7 +372,7 @@ d.addEventListener("focusin", function(e){
     tip.style.top = (rect.top + rect.height / 2) + "px";
   }
 });
-d.addEventListener("keydown", function(e){
+on(d, "keydown", function(e){
   if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==="b"){
     e.preventDefault();
     if(ACT["toggle-sidebar"]) ACT["toggle-sidebar"]();
@@ -373,10 +380,16 @@ d.addEventListener("keydown", function(e){
   if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==="k"){ e.preventDefault(); ACT.cmd(); }
   if(e.key==="Escape"){ closeOv(); $("#rail").classList.remove("open"); }
 });
-window.addEventListener("hashchange", function(){ var h=location.hash.slice(1); if(h && h!==S.view && VIEWS[h]) go(h); });
+on(window, "hashchange", function(){ var h=location.hash.slice(1); if(h && h!==S.view && VIEWS[h]) go(h); });
 
 shell();
 var contentRoot = createRoot($("#content"));
 var start=(location.hash||"").slice(1); go(VIEWS[start]?start:"cockpit");
-return function(){ clearInterval(S.feedTimer); clearInterval(S.clk); setTimeout(function(){ contentRoot.unmount(); },0); };
+return function(){
+  clearInterval(S.feedTimer); clearInterval(S.clk);
+  listeners.forEach(function(l){ l[0].removeEventListener(l[1], l[2]); });
+  listeners = [];
+  mounted = false;
+  setTimeout(function(){ contentRoot.unmount(); },0);
+};
 }

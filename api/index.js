@@ -3,6 +3,7 @@ import cors from 'cors';
 import { cookieRouter } from '../server/routes/cookieRoutes.js';
 import { platformRouter } from '../server/routes/platformRoutes.js';
 import { scannerRouter } from '../server/routes/scannerRoutes.js';
+import { storeRouter } from '../server/routes/storeRoutes.js';
 
 const app = express();
 
@@ -13,11 +14,13 @@ app.use(express.json());
 app.use('/api/cookies', cookieRouter);
 app.use('/api/platform', platformRouter);
 app.use('/api/scanner', scannerRouter);
+app.use('/api/store', storeRouter);
 
 // Also mount without /api prefix in case Vercel rewrites strip the /api prefix
 app.use('/cookies', cookieRouter);
 app.use('/platform', platformRouter);
 app.use('/scanner', scannerRouter);
+app.use('/store', storeRouter);
 
 // Root and status health
 app.get(['/', '/api'], (_req, res) => {

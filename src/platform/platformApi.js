@@ -27,12 +27,40 @@ export const platformApi = {
     return await request('/api/platform/init');
   },
 
-  // ROPA
-  async registerRopaActivity(activity) {
-    return await request('/api/platform/ropa', {
+  // Editable module records (see storeSchemas.js)
+  async getModuleStore(module) {
+    return await request(`/api/store/${module}`);
+  },
+
+  async createRecord(module, coll, doc) {
+    return await request(`/api/store/${module}/${coll}`, {
       method: 'POST',
-      body: JSON.stringify(activity),
+      body: JSON.stringify(doc),
     });
+  },
+
+  async replaceRecord(module, coll, id, doc) {
+    return await request(`/api/store/${module}/${coll}/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(doc),
+    });
+  },
+
+  async deleteRecord(module, coll, id) {
+    return await request(`/api/store/${module}/${coll}/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async patchModuleState(module, patch) {
+    return await request(`/api/store/${module}/state`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
+  },
+
+  async resetModuleStore(module) {
+    return await request(`/api/store/${module}/reset`, { method: 'POST' });
   },
 
   // Rights Requests / DSAR Step Advancement

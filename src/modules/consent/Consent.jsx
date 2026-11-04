@@ -1,32 +1,248 @@
 import ModuleView from "../../components/ModuleView.jsx";
+import {
+  loadConsentState,
+  saveConsentState,
+  resetConsentState,
+  loadCurrentUser,
+  saveCurrentUser,
+  DEMO_ACCOUNTS,
+  ROLES,
+  DEFAULT_RIGHTS,
+  REGION_TREE,
+  LEGAL_BASIS_OPTIONS,
+  PURPOSE_CATEGORIES,
+  DATA_ATTRIBUTES,
+  CHANNELS,
+} from "./consentData.js";
+import {
+  CONSENT_TOP_TABS,
+  BUILDER_STEPS,
+  BUILDER_STEP_ICONS,
+  BUILDER_SUBS,
+  DATE_RANGES,
+  createConsentUiState,
+} from "./consentConfig.js";
 
-export function createConsentView(runtime) {
-  const { D, S, bar, btn, card, curTab, fmt, head, kpi, pill, table, tabs } = runtime;
-  return function(){
-  var t=curTab("consent","overview");
-  var h=head("Control","Consent","Consent across web, app, branch and call centre, with withdrawals synced to every downstream system.", btn("Bulk import","toastm","Import template downloaded")+btn("Record consent","toastm","Consent recorded with notice v3.2","p","plus"))+
-    tabs("consent",[["overview","Overview"],["profiles","Consent profiles"],["records","Records"],["pref","Preference centre"],["cm","Consent Managers"]]);
-  if(t==="overview"){
-    var pur=[["Credit assessment",412880,99],["KYC (legal obligation)",701204,100],["Offers by SMS & WhatsApp",842113,71],["Offers by email",604221,64],["Personalisation",388012,52],["Co-lending partner sharing",120544,38]];
-    return h+(S.recon?'<div class="banner t"><span><b>Re-consent campaign running.</b> 4,710 of 5,092 re-consented (93%) · 289 pending · 93 declined and blocked by Purpose Guard.</span></div>':'<div class="banner"><span><b>5,092 consents were collected under an older notice version.</b> Ask these customers to review notice v3.2.</span><span class="r">'+btn("Trigger re-consent campaign","recon",null,"p")+'</span></div>')+
-     '<div class="g g4">'+kpi("Active consents","1.21M","of 1.33M records","#14B8A6")+kpi("Opt-in rate","91.2%",'<span class="tr">+2.1%</span> vs last month',"#3B82F6")+kpi("Withdrawals","8.6%","177 this week","#F59E0B")+kpi("Withdrawal sync","2.4 min","Average to all 6 systems","#14B8A6")+'</div>'+
-     '<div class="g g2">'+card("Consent by purpose", pur.map(function(p){ return '<div style="margin-bottom:10px"><div class="row"><span>'+p[0]+'</span><span class="sp"></span><span class="mono dim">'+fmt(p[1])+'</span></div>'+bar(p[2])+'</div>'; }).join(""))+
-     card("Channels and languages", '<div class="g g2" style="gap:10px">'+[["Web","412K"],["Mobile app","538K"],["Branch tablet (offline-ready)","221K"],["Call centre IVR","42K"]].map(function(c){ return '<div class="clock"><small>'+c[0]+'</small><b>'+c[1]+'</b></div>'; }).join("")+'</div><p class="muted" style="margin-top:12px;font-size:13px">Top languages: English 46%, Hindi 21%, Marathi 9%, Tamil 6%, Telugu 5%, Kannada 4%</p>')+'</div>';
-  }
-  if(t==="profiles") return h+card("Consent profiles by business process", table(["Profile","Business process","Purposes","Channels","Notice","Status","Records"], D.consentProfiles.map(function(p){ return ['<b>'+p.n+'</b>', p.proc, p.purposes.length, '<span class="muted">'+p.ch+'</span>', '<span class="mono">'+p.v+'</span>', pill(p.st==="Live"?"ok":"risk",p.st), '<span class="mono">'+p.rec+'</span>']; }), "profile"), btn("Industry templates (38)","toastm","Industry template library opened","sm"), true)+'<div class="banner t"><span>Engineering calls the Consent Check API with these profiles. Cached check responds in under 10 ms.</span></div>';
-  if(t==="records") return h+card("Consent receipts", table(["Receipt","Data principal","Purpose","Notice","Channel","Status","Hash"], [["CR-9918201","Customer #4471","Offers by SMS","v3.2 · Marathi","App",pill("block","Withdrawn 14:02"),"e19c…77b2"],["CR-9918200","Customer #4471","Credit assessment","v3.2 · Marathi","Web",pill("ok","Active"),"b08d…4a90"],["CR-9918188","Customer #9021","Offers by email","v3.1 · English","Web",pill("ok","Active"),"1a2f…90cd"],["CR-9918174","Minor #0332 (guardian)","Account opening","v1.3 · Hindi","Branch",pill("risk","Guardian unverified"),"77ee…b210"],["CR-9918160","Customer #3310","Personalisation","v2.4 · English","Web",pill("risk","Old notice"),"c4d0…8e11"]].map(function(r){ r[6]='<span class="mono">'+r[6]+'</span>'; return r; })), null, true);
-  if(t==="pref") return h+'<div class="g g2" style="align-items:start">'+card("What customers see", '<div class="phone"><div class="ph-top"></div><div class="ph-b"><b style="font-size:15px">Your privacy choices</b><span style="color:#5E6A84">Aarohan Finance · मराठी available</span>'+[["Loan updates and service messages","Required for your loan",true,true],["Offers by SMS & WhatsApp","Withdraw any time",false,false],["Offers by email","Withdraw any time",true,false],["Personalised offers","Based on app activity",false,false],["Share with co-lending partner","Only for your loan",true,false]].map(function(o,k){ return '<div style="display:flex;gap:10px;align-items:center;padding:10px;border-radius:12px;background:#F6F7F9"><span style="flex:1"><b style="display:block;font-size:12.5px">'+o[0]+'</b><span style="color:#5E6A84;font-size:11.5px">'+o[1]+'</span></span><button class="switch" role="switch" aria-checked="'+o[2]+'" '+(o[3]?'disabled':'data-act="sw"')+' aria-label="'+o[0]+'"></button></div>'; }).join("")+'<span style="color:#5E6A84;font-size:11px">Grievance officer: dpo@aarohan.example · You can complain to the Data Protection Board of India.</span></div></div>')+
-      card("Configure", '<div class="g" style="gap:12px"><div class="field"><label for="pc-b">Brand colour</label><input id="pc-b" value="#B45309"></div><div class="field"><label for="pc-l">Default language</label><select id="pc-l"><option>Auto-detect</option><option>English</option><option>मराठी</option></select></div><div class="row"><button class="switch" role="switch" aria-checked="true" data-act="sw" aria-label="Offline queue"></button><span>Queue choices offline on branch tablets for up to 7 days</span></div><div class="row"><button class="switch" role="switch" aria-checked="true" data-act="sw" aria-label="Guardian"></button><span>Guardian consent path for minors (s.9)</span></div>'+btn("Publish preference centre","toastm","Preference centre published","p")+'</div>')+'</div>';
-  return h+'<div class="g g2">'+card("Consent Manager integration · s.6(7)–(9)", '<p class="muted">Registration of Consent Managers opens on 13 November 2026 (Rule 4). PrivacySEK receives consent artefacts from registered Consent Managers and keeps them in sync with your own records.</p><dl class="kv" style="margin-top:14px"><dt>Status</dt><dd>'+pill("info","Ready to connect")+'</dd><dt>Artefact format</dt><dd>Signed consent artefact · JSON</dd><dt>Sync</dt><dd>Webhook + daily reconciliation</dd><dt>Withdrawals</dt><dd>Honoured within 2 minutes</dd></dl>')+
-    card("Registered Consent Managers", '<div class="empty">The Data Protection Board publishes the register once registrations open. Connected managers will appear here.</div>')+'</div>';
-};
+import { createDashboardRenderer } from "./screens/dashboard/ConsentDashboard.jsx";
+import { createRecordsRenderer } from "./screens/records/ConsentRecords.jsx";
+import { createBuilderRenderer } from "./screens/builder/ConsentBuilder.jsx";
+import { createJurisdictionsRenderer } from "./screens/jurisdictions/ConsentJurisdictions.jsx";
+import { createWorkflowsRenderer } from "./screens/workflows/ConsentWorkflows.jsx";
+import { createEmailsRenderer } from "./screens/emails/ConsentEmails.jsx";
+import { createImplementationRenderer } from "./screens/implementation/ConsentImplementation.jsx";
+import { registerConsentActions as registerActions } from "./actions/consentActions.js";
+import "./consent.css";
+
+let state;
+let runtime;
+let ui = createConsentUiState();
+let currentUser = loadCurrentUser();
+let renderers;
+
+const safe = value => runtime.esc(String(value ?? ""));
+const formatDate = d => d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
+const formatDateTime = d => d ? new Date(d).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : "—";
+const canEdit = () => Boolean(ROLES[currentUser?.role]?.edit ?? true);
+
+function getConsentContext() {
+  return {
+    state,
+    runtime,
+    ui,
+    loadConsentState,
+    saveConsentState,
+    resetConsentState,
+    loadCurrentUser,
+    saveCurrentUser,
+    DEMO_ACCOUNTS,
+    ROLES,
+    DEFAULT_RIGHTS,
+    REGION_TREE,
+    LEGAL_BASIS_OPTIONS,
+    PURPOSE_CATEGORIES,
+    DATA_ATTRIBUTES,
+    CHANNELS,
+    CONSENT_TOP_TABS,
+    BUILDER_STEPS,
+    BUILDER_STEP_ICONS,
+    BUILDER_SUBS,
+    DATE_RANGES,
+    safe,
+    formatDate,
+    formatDateTime,
+    canEdit,
+    currentUser,
+    switchUser: user => {
+      currentUser = user;
+      saveCurrentUser(user);
+    },
+    // Refills the same state object, so references held by actions stay valid
+    resetState: () => resetConsentState(),
+    renderers,
+  };
 }
 
+export function createConsentView(moduleRuntime) {
+  runtime = moduleRuntime;
+  if (!state) {
+    state = loadConsentState();
+  }
+  if (!currentUser) {
+    currentUser = loadCurrentUser();
+  }
 
-export function registerConsentActions(runtime, ACT, AFTER) {
-  const { D, S, btn, drawer, ledgerAdd, render, tag, toast } = runtime;
-  ACT.recon = function(){ S.recon=true; ledgerAdd("Re-consent campaign started","5,092 data principals · notice v3.2"); render(); toast("Campaign sent by SMS, email and app in each customer's language"); }
-  ACT.profile = function(i){ var p=D.consentProfiles[i]; drawer(p.n, p.proc+" · "+p.v, p.purposes.map(function(u){ return '<div class="card" style="padding:14px;display:grid;gap:8px"><div class="row"><b>'+u[0]+'</b><span class="sp"></span>'+tag(u[1]==="consent"?"consent":"legal_obligation",u[1]==="consent"?"pii":"ref")+'</div><div class="tags">'+u[2].map(function(c){ return tag(c, /Aadhaar|PAN|Photo|Income|Bank|Bureau|Guardian/.test(c)?"spi":""); }).join("")+'</div></div>'; }).join("")+'<dl class="kv"><dt>Channels</dt><dd>'+p.ch+'</dd><dt>Records</dt><dd class="mono">'+p.rec+'</dd><dt>API</dt><dd class="mono">GET /v1/consent/check?profile=pl-'+i+'</dd></dl>', btn("Edit profile","toastm","Profile opened for editing","p")); }
+  const context = getConsentContext();
+  renderers = {
+    dashboard: createDashboardRenderer(context),
+    records: createRecordsRenderer(context),
+    builder: createBuilderRenderer(context),
+    jurisdictions: createJurisdictionsRenderer(context),
+    workflows: createWorkflowsRenderer(context),
+    emails: createEmailsRenderer(context),
+    implementation: createImplementationRenderer(context),
+  };
+  context.renderers = renderers;
+
+  return function renderConsent() {
+    const activeTab = ui.topTab || "dashboard";
+    const allowedModules = ROLES[currentUser.role]?.modules || [];
+    const isAllowed = allowedModules.includes(activeTab);
+    const tabObj = CONSENT_TOP_TABS.find(([id]) => id === activeTab);
+    const tabTitle = tabObj ? tabObj[1] : "Consent Module";
+
+    const topNavigationHtml = `
+      <nav class="cp-top-nav" aria-label="Consent Module Submodules">
+        ${CONSENT_TOP_TABS.map(([id, label]) => {
+          const isTabActive = activeTab === id;
+          const isPermitted = allowedModules.includes(id);
+          return `
+            <button
+              class="cp-top-nav-btn ${isTabActive ? "active" : ""} ${isPermitted ? "" : "restricted"}"
+              data-act="cp-tab"
+              data-arg="${id}"
+              title="${safe(label)}${isPermitted ? "" : " (Restricted for " + currentUser.role + ")"}"
+            >
+              ${safe(label)}
+              ${isPermitted ? "" : '<span style="font-size:11px;opacity:0.6">🔒</span>'}
+            </button>
+          `;
+        }).join("")}
+      </nav>
+    `;
+
+    const userInitials = (currentUser.name || "Asha Verma")
+      .split(" ")
+      .map(w => w[0])
+      .join("");
+
+    const metaBarHtml = `
+      <div class="cp-meta-bar">
+        <div class="cp-crumb">
+          <span>Privacy</span>
+          <span>/</span>
+          <span>Consent Preference</span>
+          <span>/</span>
+          <b>${safe(tabTitle)}</b>
+          ${ui.selectedRecordId ? `<span>/</span> <b>${safe(ui.selectedRecordId)}</b>` : ""}
+        </div>
+
+        <div class="cp-meta-actions">
+          <!-- Role & Account Switcher Dropdown -->
+          <div style="position:relative">
+            <button
+              class="cp-user-badge"
+              data-act="cp-toggle-user-menu"
+              title="Click to switch simulated demo account"
+            >
+              <span class="cp-user-avatar">${safe(userInitials)}</span>
+              <span style="font-weight:600;color:var(--text)">${safe(currentUser.name)}</span>
+              <span class="cp-role-tag">${safe(currentUser.role)}</span>
+              <span style="font-size:10px;opacity:0.6">▼</span>
+            </button>
+
+            ${ui.userMenuOpen ? `
+              <div class="cp-user-dropdown" role="menu">
+                <div style="padding:4px 8px;font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:0.04em">
+                  Switch Demo Account
+                </div>
+                ${DEMO_ACCOUNTS.map(a => `
+                  <button
+                    class="cp-user-dropdown-item ${a.id === currentUser.id ? "active" : ""}"
+                    data-act="cp-switch-user"
+                    data-arg="${safe(a.id)}"
+                    role="menuitem"
+                  >
+                    <b>${safe(a.name)}</b>
+                    <small>${safe(a.role)} · ${ROLES[a.role].edit ? "Can edit" : "Read-only"}</small>
+                  </button>
+                `).join("")}
+                <hr style="border:0;border-top:1px solid var(--line);margin:4px 0" />
+                <button
+                  class="cp-user-dropdown-item"
+                  data-act="cp-reset-demo-data"
+                  style="color:#ef4444"
+                  role="menuitem"
+                >
+                  <b style="color:#ef4444">↺ Reset demo data</b>
+                  <small>Restore initial dummy records</small>
+                </button>
+              </div>
+            ` : ""}
+          </div>
+
+          <button class="btn sm o" data-act="cp-reset-demo-data" title="Restore fresh sample dataset">
+            Reset Data
+          </button>
+        </div>
+      </div>
+    `;
+
+    const readOnlyBannerHtml = !canEdit() ? `
+      <div class="cp-alert-banner warning">
+        <span>👁</span>
+        <span>
+          <b>Read-only mode:</b> Your current role (<b>${safe(currentUser.role)}</b>) has view-only access. Modification actions are disabled.
+        </span>
+      </div>
+    ` : "";
+
+    let bodyHtml = "";
+    if (!isAllowed) {
+      bodyHtml = `
+        <div class="card" style="text-align:center;padding:50px 20px;margin-top:10px">
+          <div style="font-size:38px;margin-bottom:12px">🔒</div>
+          <h3 style="margin:0 0 8px;font-size:18px;color:var(--text)">Access Restricted</h3>
+          <p style="color:var(--text-2);font-size:13.5px;max-width:440px;margin:0 auto 20px">
+            Your assigned role (<b>${safe(currentUser.role)}</b>) does not have access permissions for the <b>${safe(tabTitle)}</b> submodule.
+          </p>
+          <button class="btn sm p" data-act="cp-tab" data-arg="dashboard">
+            Back to Dashboard
+          </button>
+        </div>
+      `;
+    } else {
+      const renderer = renderers[activeTab];
+      bodyHtml = renderer ? renderer() : `<div class="card empty">Submodule not found.</div>`;
+    }
+
+    return `
+      <div class="cp-module">
+        ${topNavigationHtml}
+        ${metaBarHtml}
+        ${readOnlyBannerHtml}
+        <div class="cp-body-wrap" style="margin-top:4px">
+          ${bodyHtml}
+        </div>
+      </div>
+    `;
+  };
+}
+
+export function registerConsentActions(moduleRuntime, ACT, AFTER) {
+  runtime = moduleRuntime;
+  const context = getConsentContext();
+  context.renderers = renderers;
+  registerActions(context, ACT);
 }
 
 export default function Consent({ html }) {

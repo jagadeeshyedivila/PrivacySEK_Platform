@@ -14,8 +14,9 @@ another database.
 npm install
 ```
 
-Start the backend and frontend in separate terminals. On first startup, the backend
-automatically initializes the demo data in MongoDB if the database is empty:
+Start the backend and frontend in separate terminals. The backend expects a database that
+already holds the platform data. ROPA, Consent and Data Discovery records are created,
+edited and deleted through `/api/store` and saved in MongoDB, one document per record:
 
 ```bash
 npm run server     # backend API at http://localhost:3001
@@ -25,7 +26,6 @@ npm run server     # backend API at http://localhost:3001
 npm run dev        # open http://localhost:5173
 ```
 
-For an existing database missing its demo data, run `npm run migrate` and restart the backend.
 
 ### Deployment environment variables
 
