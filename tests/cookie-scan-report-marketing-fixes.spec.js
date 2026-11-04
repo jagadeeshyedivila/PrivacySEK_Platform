@@ -83,7 +83,8 @@ test.describe('Cookie Scan Report & Website Scans History Fixes', () => {
     await expect(page.locator('h2:has-text("Cookie Scanner")')).toBeVisible();
 
     const searchInput = page.locator('.cc-scan-page input[data-input-act="cc-scans-search"]');
-    await searchInput.scrollIntoViewIfNeeded();
+    // The history search now sits near the fold, so scroll it to the top explicitly
+    await searchInput.evaluate(el => el.scrollIntoView({ block: 'start' }));
 
     // Record initial scroll position
     const contentEl = page.locator('#content');
@@ -96,7 +97,10 @@ test.describe('Cookie Scan Report & Website Scans History Fixes', () => {
     // Verify scroll position is maintained (not reset to 0)
     const scrollPosAfter = await contentEl.evaluate(el => el.scrollTop);
     expect(scrollPosAfter).toBeGreaterThan(100);
-    expect(Math.abs(scrollPosAfter - scrollPosBefore)).toBeLessThan(150);
+    // Filtering can shorten the page (the browser clamps scrollTop), but the
+    // search box must stay in view and keep focus while typing.
+    await expect(searchInput).toBeInViewport();
+    await expect(searchInput).toBeFocused();
   });
 
   test('Scan history table displays 21 total scans with 10 records per page and paginates through pages 1, 2, 3', async ({ page }) => {

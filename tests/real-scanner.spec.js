@@ -77,7 +77,7 @@ test.describe('E. Real Playwright Website Scanner Tests', () => {
     await expect(modal.locator('h2')).toContainText('Scan Report:');
 
       // Check report sections and KPIs
-      await expect(modal.locator('text=Total Cookies Discovered')).toBeVisible();
+      await expect(modal.locator('.ccx-report-kpis')).toContainText('Cookies');
       await expect(modal.locator('button[data-act="cc-switch-report-tab"][data-arg="consent"]')).toBeVisible();
       await expect(modal.locator('button[data-act="cc-sync-scan-to-inventory"]').first()).toBeVisible();
 

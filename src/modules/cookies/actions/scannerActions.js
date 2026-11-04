@@ -304,6 +304,12 @@ export function registerActions(context, ACT) {
   }
 
   ACT["cc-scan-base-url"] = value => { ui.scanBaseUrl = value; };
+
+  // Scroll to a section of the scanner page (scan history / schedules)
+  ACT["cc-scan-jump"] = targetId => {
+    const el = document.getElementById(targetId);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
   ACT["cc-scan-page-limit"] = value => { ui.scanPageLimit = value; };
   ACT["cc-scan-setup-type"] = (value, element) => {
     const dialog = element?.closest('[role="dialog"]') || document.querySelector('.modal[role="dialog"]');
@@ -683,298 +689,290 @@ export function registerActions(context, ACT) {
     const failedList = report?.failedPages || [];
     const durationSec = scan.completedAt && scan.createdAt ? Math.round((new Date(scan.completedAt) - new Date(scan.createdAt)) / 1000) : null;
 
-    const cookieRows = cookies.map((c, idx) => {
-      const isUnclassified = c.category === "unclassified" || c.classificationStatus === "Review required";
-      const catObj = (state.categories || []).find(cat => cat.id === c.category);
-      const catLabel = catObj?.name || c.category;
+    const isReview = c => c.category === "unclassified" || c.classificationStatus === "Review required";
+    const defaultCats = [
+      ["necessary", "Necessary"], ["functional", "Functional"], ["analytics", "Analytics"],
+      ["marketing", "Marketing"], ["advertising", "Advertising"], ["social_media", "Social Media"],
+    ];
+    const catOptions = (state.categories && state.categories.length)
+      ? state.categories.map(cat => [cat.id, cat.name])
+      : defaultCats;
+    const catName = id => (catOptions.find(([cid]) => cid === id) || defaultCats.find(([cid]) => cid === id) || [id, id || "Unclassified"])[1];
+    const catKey = id => ["necessary", "functional", "analytics", "marketing", "advertising", "social_media"].includes(id) ? id : "other";
 
-      const catPillHtml = runtime.pill(
-        c.category === "necessary" ? "ok"
-        : c.category === "analytics" ? "info"
-        : c.category === "marketing" ? "risk"
-        : c.category === "advertising" ? "risk"
-        : c.category === "functional" ? "mask"
-        : c.category === "social_media" ? "dim"
-        : "n",
-        catLabel
-      );
+    let host = scan.url;
+    try { host = new URL(scan.url).hostname.replace(/^www\./, ""); } catch { /* keep raw */ }
+
+    const firstParty = cookies.filter(c => c.party === "First-party").length;
+    const thirdParty = cookies.filter(c => c.party === "Third-party").length;
+    const reviewCount = cookies.filter(isReview).length;
+    const nonEssential = cookies.filter(c => !isReview(c) && c.category !== "necessary").length;
+
+    // Category distribution (for the stacked bar + filter chips)
+    const catCounts = {};
+    cookies.forEach(c => {
+      const key = isReview(c) ? "unclassified" : (c.category || "unclassified");
+      catCounts[key] = (catCounts[key] || 0) + 1;
+    });
+    const distOrder = [...defaultCats.map(([id]) => id), ...Object.keys(catCounts).filter(k => !defaultCats.some(([id]) => id === k) && k !== "unclassified"), "unclassified"];
+    const distSegments = distOrder.filter(k => catCounts[k]).map(k => ({
+      id: k,
+      label: k === "unclassified" ? "Needs review" : catName(k),
+      count: catCounts[k],
+      pct: cookies.length ? (catCounts[k] / cookies.length) * 100 : 0,
+      key: k === "unclassified" ? "unclassified" : catKey(k),
+    }));
+
+    const confidenceHtml = c => {
+      const level = String(c.confidence || "").toLowerCase();
+      if (level === "manual") return `<span class="ccx-conf is-manual" title="Classified manually">Manual</span>`;
+      const bars = level === "high" ? 3 : level === "medium" ? 2 : level === "low" ? 1 : 0;
+      const label = bars ? level.charAt(0).toUpperCase() + level.slice(1) : "Unknown";
+      return `<span class="ccx-conf lvl-${bars}" title="Classification confidence: ${safe(label)}"><span class="ccx-conf-bars"><i></i><i></i><i></i></span>${safe(label)}</span>`;
+    };
+
+    const cookieRows = cookies.map(c => {
+      const review = isReview(c);
+      const options = catOptions.map(([id, name]) => `<option value="${safe(id)}" ${!review && c.category === id ? "selected" : ""}>${safe(name)}</option>`).join("");
+      const categoryControl = review ? `
+        <span class="ccx-cat-pill is-review">
+          <select class="cc-report-cat-select ccx-cat-select" data-act="cc-report-classify-cookie" data-scan-id="${safe(scan.id)}" data-cookie-name="${safe(c.name)}" aria-label="Classify ${safe(c.name)}">
+            <option value="" disabled selected>Classify…</option>
+            ${options}
+          </select>
+        </span>
+      ` : `
+        <span class="ccx-cat-pill" data-cat="${safe(catKey(c.category))}" title="Change category">
+          <select class="cc-report-cat-select-sm ccx-cat-select" data-act="cc-report-classify-cookie" data-scan-id="${safe(scan.id)}" data-cookie-name="${safe(c.name)}" aria-label="Category for ${safe(c.name)}">
+            ${catOptions.some(([id]) => id === c.category) ? "" : `<option value="${safe(c.category)}" selected>${safe(catName(c.category))}</option>`}
+            ${options}
+          </select>
+        </span>
+      `;
 
       return `
-      <tr class="cc-report-cookie-row" data-search="${safe(`${c.name} ${c.domain} ${c.provider} ${c.category}`).toLowerCase()}" data-category="${safe(c.category)}">
-        <td style="width:24%;">
-          <span class="cc-report-cookie-title" title="${safe(c.name)}">${safe(c.name)}</span>
-          <span class="cc-report-cookie-meta" title="${safe(c.path)} · ${safe(c.duration)}">${safe(c.path)} · ${safe(c.duration)}</span>
-        </td>
-        <td style="width:18%;font-family:var(--f-mono);font-size:11px;">
-          <span class="cc-report-cell-truncate" title="${safe(c.domain)}">${safe(c.domain)}</span>
-        </td>
-        <td style="width:14%;">
-          <span class="cc-report-cell-truncate" title="${safe(c.provider || "Unknown")}">${safe(c.provider || "Unknown")}</span>
-        </td>
-        <td style="width:18%;">
-          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-            ${isUnclassified ? `
-              <select class="cc-report-cat-select" data-act="cc-report-classify-cookie" data-scan-id="${safe(scan.id)}" data-cookie-name="${safe(c.name)}" style="height:26px;font-size:11px;padding:2px 6px;border-radius:6px;border:1px solid var(--accent);background:var(--surface-2);color:var(--text);font-weight:600;cursor:pointer;" title="Classify cookie category">
-                <option value="" disabled selected>Classify…</option>
-                <option value="necessary">Necessary</option>
-                <option value="functional">Functional</option>
-                <option value="analytics">Analytics</option>
-                <option value="marketing">Marketing</option>
-                <option value="advertising">Advertising</option>
-                <option value="social_media">Social Media</option>
-              </select>
-            ` : `
-              ${catPillHtml}
-              <select class="cc-report-cat-select-sm" data-act="cc-report-classify-cookie" data-scan-id="${safe(scan.id)}" data-cookie-name="${safe(c.name)}" style="height:20px;font-size:10px;padding:0 3px;border-radius:4px;border:1px solid var(--line-2);background:transparent;color:var(--text-3);cursor:pointer;" title="Change category">
-                <option value="" disabled selected>Edit</option>
-                <option value="necessary">Necessary</option>
-                <option value="functional">Functional</option>
-                <option value="analytics">Analytics</option>
-                <option value="marketing">Marketing</option>
-                <option value="advertising">Advertising</option>
-                <option value="social_media">Social Media</option>
-              </select>
-            `}
-          </div>
-        </td>
-        <td style="width:12%;">
-          ${runtime.pill(c.confidence === "high" ? "ok" : c.confidence === "medium" ? "info" : "risk", c.confidence || "Needs Review")}
-        </td>
-        <td style="width:14%;">
-          <span style="font-size:10.5px;color:var(--text-2);display:block;">${safe(c.party)}</span>
-          <span style="display:inline-flex;gap:3px;margin-top:2px;">
-            ${c.secure ? runtime.pill("ok", "Secure") : runtime.pill("n", "HTTP")}
-            ${c.httpOnly ? runtime.pill("ok", "HttpOnly") : ""}
-          </span>
-        </td>
-      </tr>
-    `;
+        <tr class="cc-report-cookie-row${review ? " is-review" : ""}" data-search="${safe(`${c.name} ${c.domain} ${c.provider} ${c.category}`).toLowerCase()}" data-category="${safe(review ? "unclassified" : c.category)}">
+          <td>
+            <span class="cc-report-cookie-title" title="${safe(c.name)}">${safe(c.name)}</span>
+            <span class="cc-report-cookie-meta" title="Path ${safe(c.path)} · Expires ${safe(c.duration)}">${safe(c.path || "/")} · ${safe(c.duration || "Session")}</span>
+          </td>
+          <td>
+            <span class="ccx-mono cc-report-cell-truncate" title="${safe(c.domain)}">${safe(c.domain)}</span>
+            <span class="ccx-party ${c.party === "Third-party" ? "is-third" : ""}">${safe(c.party || "Unknown")}</span>
+          </td>
+          <td><span class="cc-report-cell-truncate" title="${safe(c.provider || "Unknown")}">${safe(c.provider || "Unknown")}</span></td>
+          <td>${categoryControl}</td>
+          <td>${confidenceHtml(c)}</td>
+          <td>
+            <span class="ccx-attrs">
+              ${c.secure ? `<span class="ccx-attr is-ok">Secure</span>` : `<span class="ccx-attr is-warn" title="Cookie is not marked Secure">Not secure</span>`}
+              ${c.httpOnly ? `<span class="ccx-attr is-ok">HttpOnly</span>` : ""}
+              ${c.sameSite ? `<span class="ccx-attr" title="SameSite=${safe(c.sameSite)}">SameSite ${safe(c.sameSite)}</span>` : ""}
+            </span>
+          </td>
+        </tr>
+      `;
     }).join("");
 
     const trackerRows = trackers.map(t => `
       <tr>
-        <td style="width:24%;font-family:var(--f-mono);font-weight:600;">
-          <span class="cc-report-cell-truncate" title="${safe(t.domain)}">${safe(t.domain)}</span>
+        <td>
+          <span class="ccx-mono cc-report-cell-truncate" style="font-weight:600;" title="${safe(t.domain)}">${safe(t.domain)}</span>
+          <span class="cc-report-cookie-meta" title="${safe(t.name)}">${safe(t.name || "Unknown network")}</span>
         </td>
-        <td style="width:14%;">
-          ${runtime.pill("info", t.type)}
-        </td>
-        <td style="width:18%;">
-          <span class="cc-report-cell-truncate" title="${safe(t.name)}">${safe(t.name)}</span>
-        </td>
-        <td style="width:12%;">
-          <code style="font-size:10px;padding:2px 4px;background:rgba(255,255,255,0.06);border-radius:4px;">${safe(t.resourceType || "script")}</code>
-        </td>
-        <td style="width:32%;">
-          <span class="cc-report-code-url" title="${safe(t.urlSample)}" data-act="cc-copy-report-url" data-arg="${safe(t.urlSample)}">
-            ${safe(t.urlSample)}
+        <td><span class="ccx-type-chip is-custom">${safe(t.type || "Tracker")}</span></td>
+        <td><span class="ccx-attr">${safe(t.resourceType || "script")}</span></td>
+        <td>
+          <span class="ccx-url-cell">
+            <span class="cc-report-code-url" title="${safe(t.urlSample)}">${safe(t.urlSample)}</span>
+            <button type="button" class="ccx-icon-btn" data-act="cc-copy-report-url" data-arg="${safe(t.urlSample)}" title="Copy request URL" aria-label="Copy request URL">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>
+            </button>
           </span>
         </td>
       </tr>
     `).join("");
 
+    const statusTone = scan.status === "Completed" ? "ok" : scan.status === "Partially Completed" ? "mask" : scan.status === "Running" ? "info" : "risk";
+    const preCount = consent.preConsentCookieCount ?? cookies.length;
+    const postCount = consent.postAcceptCookieCount ?? cookies.length;
+    const extra = consent.additionalCookiesDetected || [];
+
+    const kpi = (label, value, note, cls = "") => `
+      <div class="ccx-rkpi">
+        <span>${label}</span>
+        <strong class="${cls}">${value}</strong>
+        <small>${note}</small>
+      </div>
+    `;
+
     const modalBody = `
-      <div class="cc-report-modal">
-        <!-- Safe Redirect Notification if followed -->
+      <div class="cc-report-modal ccx-report">
+        <div class="ccx-report-site">
+          <span class="ccx-site-avatar is-lg" aria-hidden="true">${safe((host[0] || "?").toUpperCase())}</span>
+          <div class="ccx-report-site-text">
+            <div class="ccx-report-site-row">
+              <strong>${safe(host)}</strong>
+              ${runtime.pill(statusTone, scan.status || "Unknown")}
+            </div>
+            <a href="${safe(scan.url)}" target="_blank" rel="noopener noreferrer" class="ccx-site-url" title="${safe(scan.url)}">${safe(scan.url)}</a>
+          </div>
+          <dl class="ccx-report-facts">
+            <div><dt>Scan type</dt><dd>${safe(scan.type || "—")}</dd></div>
+            <div><dt>Started</dt><dd>${safe(dateLabel(scan.createdAt))}</dd></div>
+            <div><dt>Duration</dt><dd>${durationSec ? `${durationSec}s` : "—"}</dd></div>
+          </dl>
+        </div>
+
         ${report?.redirectInfo?.redirected ? `
-          <div class="cc-report-redirect-badge">
-            <span style="font-weight:700;">Safe Redirect Verified:</span>
-            <span><code>${safe(report.redirectInfo.initialUrl)}</code> ↳ Final Destination: <code>${safe(report.redirectInfo.finalUrl)}</code> (${report.redirectInfo.redirectChain?.length || 1} hop(s))</span>
+          <div class="ccx-notice">
+            <b>Redirect followed.</b>
+            <span><code>${safe(report.redirectInfo.initialUrl)}</code> redirected to <code>${safe(report.redirectInfo.finalUrl)}</code> in ${report.redirectInfo.redirectChain?.length || 1} hop(s).</span>
           </div>
         ` : ""}
 
-        <!-- Top KPIs -->
-        <div class="cc-report-kpis">
-          <div class="cc-report-kpi">
-            <span>Target Website</span>
-            <strong style="font-family:var(--f-mono);font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${safe(scan.url)}">
-              ${safe(new URL(scan.url).hostname || scan.url)}
-            </strong>
-            <small>${report?.redirectInfo?.redirected ? "Redirected destination" : "Direct scan target"}</small>
-          </div>
-          <div class="cc-report-kpi">
-            <span>Total Cookies Discovered</span>
-            <strong style="color:var(--accent);">${cookies.length}</strong>
-            <small>${cookies.filter(c => c.party === "First-party").length} 1st-party · ${cookies.filter(c => c.party === "Third-party").length} 3rd-party</small>
-          </div>
-          <div class="cc-report-kpi">
-            <span>Third-Party Trackers</span>
-            <strong>${thirdPartyDomains.length}</strong>
-            <small>${trackers.length} tracking requests intercepted</small>
-          </div>
-          <div class="cc-report-kpi">
-            <span>Pages Crawled</span>
-            <strong>${report?.pagesScanned || scan.pagesScanned || 0}</strong>
-            <small>${durationSec ? `${durationSec}s duration` : "Complete"} · ${failedList.length ? `<span style="color:var(--risk);">${failedList.length} failed</span>` : "0 errors"}</small>
-          </div>
+        <div class="ccx-report-kpis">
+          ${kpi("Cookies", cookies.length, `${firstParty} first · ${thirdParty} third party`, "is-accent")}
+          ${kpi("Non-essential", nonEssential, "Need prior consent", nonEssential > 0 ? "is-warn" : "")}
+          ${kpi("Needs review", reviewCount, reviewCount ? "Classify below" : "All classified", reviewCount ? "is-risk" : "is-ok")}
+          ${kpi("Trackers", thirdPartyDomains.length, `${trackers.length} requests intercepted`)}
+          ${kpi("Pages crawled", report?.pagesScanned || scan.pagesScanned || 0, failedList.length ? `<span class="is-risk">${failedList.length} failed</span>` : "No errors")}
         </div>
 
-        <!-- Navigation Tabs -->
-        <div class="cc-report-nav-tabs" role="tablist">
+        ${cookies.length ? `
+          <div class="ccx-dist">
+            <div class="ccx-dist-bar" role="img" aria-label="Cookie category distribution">
+              ${distSegments.map(s => `<span class="ccx-dist-seg" data-cat="${safe(s.key)}" style="width:${s.pct.toFixed(2)}%" title="${safe(s.label)}: ${s.count}"></span>`).join("")}
+            </div>
+          </div>
+        ` : ""}
+
+        <div class="cc-report-nav-tabs ccx-tabs" role="tablist">
           <button class="cc-report-tab-btn active" data-act="cc-switch-report-tab" data-arg="cookies" role="tab">
-            Discovered Cookies <span class="cc-report-count-chip">${cookies.length}</span>
+            Cookies <span class="cc-report-count-chip">${cookies.length}</span>
           </button>
           <button class="cc-report-tab-btn" data-act="cc-switch-report-tab" data-arg="trackers" role="tab">
-            Network Trackers & Pixels <span class="cc-report-count-chip">${trackers.length}</span>
+            Trackers <span class="cc-report-count-chip">${trackers.length}</span>
           </button>
           <button class="cc-report-tab-btn" data-act="cc-switch-report-tab" data-arg="consent" role="tab">
-            Consent Interaction Scenario Test
+            Consent test
           </button>
           <button class="cc-report-tab-btn" data-act="cc-switch-report-tab" data-arg="pages" role="tab">
-            Crawled Pages <span class="cc-report-count-chip">${pagesList.length}</span>
+            Pages <span class="cc-report-count-chip">${pagesList.length + failedList.length}</span>
           </button>
         </div>
 
-        <!-- PANEL 1: Discovered Cookies Table -->
+        <!-- PANEL 1: Discovered Cookies -->
         <div class="cc-report-panel" data-panel="cookies">
-          <div class="cc-report-filter-bar">
-            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-              <button class="btn sm cc-report-cat-btn active" data-act="cc-filter-report-category" data-arg="all">All (${cookies.length})</button>
-              <button class="btn sm cc-report-cat-btn" data-act="cc-filter-report-category" data-arg="necessary">Necessary (${cookies.filter(c => c.category === 'necessary').length})</button>
-              <button class="btn sm cc-report-cat-btn" data-act="cc-filter-report-category" data-arg="analytics">Analytics (${cookies.filter(c => c.category === 'analytics').length})</button>
-              <button class="btn sm cc-report-cat-btn" data-act="cc-filter-report-category" data-arg="marketing">Marketing (${cookies.filter(c => c.category === 'marketing').length})</button>
-              <button class="btn sm cc-report-cat-btn" data-act="cc-filter-report-category" data-arg="advertising">Advertising (${cookies.filter(c => c.category === 'advertising').length})</button>
-              <button class="btn sm cc-report-cat-btn" data-act="cc-filter-report-category" data-arg="functional">Functional (${cookies.filter(c => c.category === 'functional').length})</button>
-              <button class="btn sm cc-report-cat-btn" data-act="cc-filter-report-category" data-arg="unclassified">Needs Review (${cookies.filter(c => c.category === 'unclassified' || c.classificationStatus === 'Review required').length})</button>
+          <div class="cc-report-filter-bar ccx-filter-bar">
+            <div class="ccx-chips">
+              <button class="cc-report-cat-btn ccx-chip active" data-act="cc-filter-report-category" data-arg="all">All <b>${cookies.length}</b></button>
+              ${[...defaultCats.map(([id, name]) => [id, name, catCounts[id] || 0]), ["unclassified", "Needs review", reviewCount]]
+                .map(([id, name, count]) => `<button class="cc-report-cat-btn ccx-chip${count ? "" : " is-empty"}" data-act="cc-filter-report-category" data-arg="${id}"><i data-cat="${id === "unclassified" ? "unclassified" : catKey(id)}"></i>${safe(name)} <b>${count}</b></button>`).join("")}
             </div>
-            <div style="display:flex;gap:8px;align-items:center;">
-              <input type="search" class="cc-report-search-input" placeholder="Filter cookies..." data-input-act="cc-filter-report-cookies">
-              <button class="btn sm t" data-act="cc-sync-scan-to-inventory" data-arg="${safe(scan.id)}">Add All to Cookie Categories Inventory</button>
-            </div>
+            <label class="ccx-search">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+              <input type="search" class="cc-report-search-input" placeholder="Search name, domain, provider" aria-label="Search cookies" data-input-act="cc-filter-report-cookies">
+            </label>
           </div>
 
           <div class="cc-report-table-card">
             <div class="cc-report-table-wrapper">
-              <table class="cc-report-table">
+              <table class="cc-report-table ccx-report-table">
                 <colgroup>
-                  <col style="width:26%;">
-                  <col style="width:20%;">
-                  <col style="width:14%;">
-                  <col style="width:14%;">
-                  <col style="width:12%;">
-                  <col style="width:14%;">
+                  <col style="width:21%;"><col style="width:19%;"><col style="width:14%;">
+                  <col style="width:16%;"><col style="width:11%;"><col style="width:19%;">
                 </colgroup>
                 <thead>
                   <tr>
-                    <th>Cookie Name & Scope</th>
-                    <th>Domain</th>
-                    <th>Provider</th>
-                    <th>Category</th>
-                    <th>Confidence</th>
-                    <th>Party & Security</th>
+                    <th>Cookie</th><th>Domain</th><th>Provider</th><th>Category</th><th>Confidence</th><th>Attributes</th>
                   </tr>
                 </thead>
                 <tbody>
-                  ${cookies.length ? cookieRows : `<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--text-3);">No cookies observed on this website.</td></tr>`}
+                  ${cookies.length ? cookieRows : `<tr><td colspan="6" class="ccx-table-empty">No cookies were observed on this website.</td></tr>`}
+                  <tr class="ccx-noresults" hidden><td colspan="6" class="ccx-table-empty">No cookies match this filter.</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
         </div>
 
-        <!-- PANEL 2: Network Trackers & Scripts -->
+        <!-- PANEL 2: Network Trackers -->
         <div class="cc-report-panel" data-panel="trackers" hidden>
-          <div class="cc-report-filter-bar">
-            <div>
-              <span style="font-size:12px;font-weight:600;color:var(--text);">Observed Third-Party Trackers & Network Requests</span>
-              <small style="display:block;font-size:10.5px;color:var(--text-3);">Click any truncated request URL to copy full URL to clipboard.</small>
-            </div>
-          </div>
-
           <div class="cc-report-table-card">
             <div class="cc-report-table-wrapper">
-              <table class="cc-report-table">
-                <colgroup>
-                  <col style="width:24%;">
-                  <col style="width:14%;">
-                  <col style="width:18%;">
-                  <col style="width:12%;">
-                  <col style="width:32%;">
-                </colgroup>
-                <thead>
-                  <tr>
-                    <th>Tracker Domain</th>
-                    <th>Category</th>
-                    <th>Provider / Network</th>
-                    <th>Resource</th>
-                    <th>Sample Request URL (Click to Copy)</th>
-                  </tr>
-                </thead>
+              <table class="cc-report-table ccx-report-table">
+                <colgroup><col style="width:30%;"><col style="width:16%;"><col style="width:12%;"><col style="width:42%;"></colgroup>
+                <thead><tr><th>Tracker</th><th>Category</th><th>Resource</th><th>Sample request</th></tr></thead>
                 <tbody>
-                  ${trackers.length ? trackerRows : `<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text-3);">No known third-party tracking scripts or beacons observed.</td></tr>`}
+                  ${trackers.length ? trackerRows : `<tr><td colspan="4" class="ccx-table-empty">No known third-party trackers or beacons were observed.</td></tr>`}
                 </tbody>
               </table>
             </div>
           </div>
         </div>
 
-        <!-- PANEL 3: Consent Interaction Audit -->
+        <!-- PANEL 3: Consent Interaction Test -->
         <div class="cc-report-panel" data-panel="consent" hidden>
-          <div style="background:var(--surface-2);border:1px solid var(--line-2);border-radius:9px;padding:14px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-              <strong style="font-size:13px;color:var(--text);">Consent Interaction Scenario Test</strong>
-              ${runtime.pill(consent.bannerDetected ? "ok" : "n", consent.bannerDetected ? "Standard Banner Detected" : "No Standard Banner Detected")}
+          <div class="ccx-consent">
+            <div class="ccx-verdict ${consent.bannerDetected ? "is-ok" : "is-warn"}">
+              <strong>${consent.bannerDetected ? "Consent banner detected and accepted" : "No consent banner detected"}</strong>
+              <p>${consent.bannerDetected
+                ? `The crawler clicked <code>${safe(consent.buttonClicked)}</code> and compared cookies before and after acceptance.`
+                : safe(consent.note || "No standard consent banner was found on the landing page, so only the pre-consent state was recorded.")}</p>
             </div>
-            <p style="font-size:11.5px;color:var(--text-2);margin:0 0 14px;line-height:1.5;">
-              ${consent.bannerDetected
-                ? `Standard consent banner detected using selector <code>${safe(consent.buttonClicked)}</code>. Initial visit (pre-consent) set <b>${consent.preConsentCookieCount || 0}</b> cookies. Post-Accept visit fired <b>${consent.postAcceptCookieCount || 0}</b> cookies (${consent.additionalCookiesDetected?.length || 0} additional cookies observed after simulated acceptance).`
-                : (consent.note || "No standard consent banner detected or interacted with reliably on the landing page.")}
-            </p>
-
-            <div class="g g2">
-              <div style="background:var(--surface);border:1px solid var(--line-2);border-radius:8px;padding:12px;">
-                <span style="font-size:10px;text-transform:uppercase;color:var(--text-3);font-weight:600;letter-spacing:0.04em;">Pre-Consent Scenario</span>
-                <div style="font-size:20px;font-weight:700;color:var(--text);margin:4px 0;">${consent.preConsentCookieCount ?? cookies.length} Cookies</div>
-                <small style="color:var(--text-3);font-size:10.5px;">Fired on first arrival before visitor consent choice.</small>
+            <div class="ccx-scenarios">
+              <div class="ccx-scenario">
+                <span>Before consent</span>
+                <strong>${preCount}</strong>
+                <small>Cookies set on first visit</small>
               </div>
-              <div style="background:var(--surface);border:1px solid var(--line-2);border-radius:8px;padding:12px;">
-                <span style="font-size:10px;text-transform:uppercase;color:var(--text-3);font-weight:600;letter-spacing:0.04em;">Post-Accept All Scenario</span>
-                <div style="font-size:20px;font-weight:700;color:var(--accent);margin:4px 0;">${consent.postAcceptCookieCount ?? cookies.length} Cookies</div>
-                <small style="color:var(--text-3);font-size:10.5px;">Fired after clicking consent banner acceptance.</small>
+              <div class="ccx-scenario-arrow" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                ${consent.bannerDetected ? `<b>+${Math.max(0, postCount - preCount)}</b>` : ""}
+              </div>
+              <div class="ccx-scenario">
+                <span>After “Accept all”</span>
+                <strong class="is-accent">${consent.bannerDetected ? postCount : "—"}</strong>
+                <small>${consent.bannerDetected ? "Cookies set after acceptance" : "Not tested"}</small>
               </div>
             </div>
-
-            ${consent.additionalCookiesDetected?.length ? `
-              <div style="margin-top:12px;padding:10px 12px;background:rgba(20,184,166,0.08);border:1px solid rgba(20,184,166,0.25);border-radius:8px;">
-                <strong style="font-size:11.5px;color:var(--accent);display:block;margin-bottom:4px;">Cookies Requiring Prior Consent (+${consent.additionalCookiesDetected.length})</strong>
-                <div style="display:flex;gap:6px;flex-wrap:wrap;">
-                  ${consent.additionalCookiesDetected.map(name => `<span class="pill sm ok">${safe(name)}</span>`).join("")}
-                </div>
+            ${extra.length ? `
+              <div class="ccx-extra">
+                <strong>Set only after consent (${extra.length})</strong>
+                <div class="ccx-extra-list">${extra.map(name => `<span class="ccx-attr">${safe(name)}</span>`).join("")}</div>
               </div>
             ` : ""}
           </div>
         </div>
 
-        <!-- PANEL 4: Crawled Pages & Errors -->
+        <!-- PANEL 4: Crawled Pages -->
         <div class="cc-report-panel" data-panel="pages" hidden>
-          <div class="g g2">
-            <div style="background:var(--surface-2);border:1px solid var(--line-2);border-radius:9px;padding:12px;">
-              <span style="font-size:11px;font-weight:600;color:var(--text);display:block;margin-bottom:8px;">
-                Successfully Visited Pages (${pagesList.length})
-              </span>
-              <div style="max-height:220px;overflow-y:auto;overflow-x:hidden;">
-                ${pagesList.map(p => `
-                  <div class="cc-report-url-row" title="${safe(p)}">
-                    <span class="cc-report-url-row-text" style="color:var(--ok);">✓ ${safe(p)}</span>
-                    <button class="btn sm" style="padding:1px 6px;font-size:9.5px;" data-act="cc-copy-report-url" data-arg="${safe(p)}">Copy</button>
+          <div class="ccx-pages">
+            <div class="ccx-pages-col">
+              <div class="ccx-pages-head"><span class="ccx-dot is-ok"></span>Visited <b>${pagesList.length}</b></div>
+              <div class="ccx-pages-list">
+                ${pagesList.length ? pagesList.map(p => `
+                  <div class="cc-report-url-row ccx-page-row" title="${safe(p)}">
+                    <span class="cc-report-url-row-text">${safe(p)}</span>
+                    <button type="button" class="ccx-icon-btn" data-act="cc-copy-report-url" data-arg="${safe(p)}" title="Copy URL" aria-label="Copy URL">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>
+                    </button>
                   </div>
-                `).join("")}
+                `).join("") : `<div class="ccx-table-empty">No pages recorded.</div>`}
               </div>
             </div>
-
-            <div style="background:var(--surface-2);border:1px solid var(--line-2);border-radius:9px;padding:12px;">
-              <span style="font-size:11px;font-weight:600;color:var(--text);display:block;margin-bottom:8px;">
-                Failed or Unreachable Pages (${failedList.length})
-              </span>
-              <div style="max-height:220px;overflow-y:auto;overflow-x:hidden;">
+            <div class="ccx-pages-col">
+              <div class="ccx-pages-head"><span class="ccx-dot is-risk"></span>Failed <b>${failedList.length}</b></div>
+              <div class="ccx-pages-list">
                 ${failedList.length ? failedList.map(f => `
-                  <div class="cc-report-url-row" style="border-left:2px solid var(--risk);" title="${safe(f.url)}: ${safe(f.error)}">
+                  <div class="cc-report-url-row ccx-page-row is-failed" title="${safe(f.url)}: ${safe(f.error)}">
                     <div style="min-width:0;flex:1;">
-                      <div class="cc-report-url-row-text" style="color:var(--risk);">✗ ${safe(f.url)}</div>
-                      <small style="color:var(--text-3);font-size:9.5px;display:block;">${safe(f.error)}</small>
+                      <div class="cc-report-url-row-text">${safe(f.url)}</div>
+                      <small>${safe(f.error)}</small>
                     </div>
                   </div>
-                `).join("") : `<div style="padding:16px;color:var(--text-3);font-size:11px;text-align:center;">All pages were visited successfully with 0 errors.</div>`}
+                `).join("") : `<div class="ccx-table-empty">Every page loaded without errors.</div>`}
               </div>
             </div>
           </div>
@@ -982,10 +980,10 @@ export function registerActions(context, ACT) {
       </div>
     `;
 
-    runtime.modal(`Scan Report: ${safe(scan.url)}`, `Scan ID: ${safe(scan.id)} · Type: ${safe(scan.type)} · ${safe(dateLabel(scan.createdAt))}`, modalBody, `
+    runtime.modal(`Scan Report: ${safe(host)}`, `${safe(scan.type || "Scan")} · ${safe(dateLabel(scan.createdAt))} · ${safe(scan.id)}`, modalBody, `
       <button class="btn" data-act="close">Close</button>
       <button class="btn t" data-act="cc-sync-scan-to-inventory" data-arg="${safe(scan.id)}">Add Discovered to Inventory</button>
-    `, "drawer-wide");
+    `, "drawer-wide ccx-report-modal-shell");
   };
 
   // Action to classify an unclassified cookie from the scan report
@@ -1084,8 +1082,21 @@ export function registerActions(context, ACT) {
 
     runtime.toast('Cookie "' + cookieName + '" categorized as ' + (catObj?.name || newCategory) + ' and saved to Inventory.');
 
-    // 4. Update the Report modal DOM so user sees the change immediately
-    ACT["cc-view-scan-report"](scan.id);
+    // 4. Re-render the Report modal, keeping the reviewer's active filter and search
+    const openModal = document.querySelector(".cc-report-modal");
+    const keepCat = openModal?.querySelector(".cc-report-cat-btn.active")?.getAttribute("data-arg") || "all";
+    const keepQuery = openModal?.querySelector(".cc-report-search-input")?.value || "";
+    const keepScroll = openModal?.querySelector(".cc-report-table-wrapper")?.scrollTop || 0;
+    await ACT["cc-view-scan-report"](scan.id);
+    const reopened = document.querySelector(".cc-report-modal");
+    if (reopened) {
+      const search = reopened.querySelector(".cc-report-search-input");
+      if (search) search.value = keepQuery;
+      const chip = reopened.querySelector(`.cc-report-cat-btn[data-arg="${keepCat}"]`);
+      ACT["cc-filter-report-category"](chip ? keepCat : "all", reopened);
+      const wrap = reopened.querySelector(".cc-report-table-wrapper");
+      if (wrap) wrap.scrollTop = keepScroll;
+    }
   };
 
   // Report modal interactive tab switching
@@ -1102,43 +1113,40 @@ export function registerActions(context, ACT) {
     });
   };
 
+  // Shared report filtering: category chip + search query, with a "no matches" row
+  const applyReportFilters = modal => {
+    const activeCat = modal.querySelector(".cc-report-cat-btn.active")?.getAttribute("data-arg") || "all";
+    const query = (modal.querySelector(".cc-report-search-input")?.value || "").toLowerCase().trim();
+    let visible = 0;
+    const rows = modal.querySelectorAll(".cc-report-cookie-row");
+    rows.forEach(row => {
+      const rowCat = (row.getAttribute("data-category") || "").toLowerCase();
+      const rowSearch = (row.getAttribute("data-search") || "").toLowerCase();
+      const catMatch = activeCat === "all" || rowCat === activeCat;
+      const searchMatch = !query || rowSearch.includes(query);
+      const show = catMatch && searchMatch;
+      row.style.display = show ? "" : "none";
+      if (show) visible += 1;
+    });
+    const empty = modal.querySelector(".ccx-noresults");
+    if (empty) empty.hidden = !rows.length || visible > 0;
+  };
+
   // Report modal category filtering
   ACT["cc-filter-report-category"] = (cat, element) => {
     const modal = element?.closest(".cc-report-modal") || document.querySelector(".cc-report-modal");
     if (!modal) return;
-
     modal.querySelectorAll(".cc-report-cat-btn").forEach(btn => {
       btn.classList.toggle("active", btn.getAttribute("data-arg") === cat);
     });
-
-    const searchInput = modal.querySelector(".cc-report-search-input");
-    const query = (searchInput?.value || "").toLowerCase().trim();
-
-    modal.querySelectorAll(".cc-report-cookie-row").forEach(row => {
-      const rowCat = (row.getAttribute("data-category") || "").toLowerCase();
-      const rowSearch = (row.getAttribute("data-search") || "").toLowerCase();
-      const catMatch = cat === "all" || (cat === "unclassified" ? (rowCat === "unclassified" || row.innerText.toLowerCase().includes("review required")) : rowCat === cat);
-      const searchMatch = !query || rowSearch.includes(query);
-      row.style.display = (catMatch && searchMatch) ? "" : "none";
-    });
+    applyReportFilters(modal);
   };
 
   // Report modal live cookie search
   ACT["cc-filter-report-cookies"] = (query, element) => {
     const modal = element?.closest(".cc-report-modal") || document.querySelector(".cc-report-modal");
     if (!modal) return;
-
-    const activeCatBtn = modal.querySelector(".cc-report-cat-btn.active");
-    const activeCat = activeCatBtn?.getAttribute("data-arg") || "all";
-    const q = (query || "").toLowerCase().trim();
-
-    modal.querySelectorAll(".cc-report-cookie-row").forEach(row => {
-      const rowCat = (row.getAttribute("data-category") || "").toLowerCase();
-      const rowSearch = (row.getAttribute("data-search") || "").toLowerCase();
-      const catMatch = activeCat === "all" || (activeCat === "unclassified" ? (rowCat === "unclassified" || row.innerText.toLowerCase().includes("review required")) : rowCat === activeCat);
-      const searchMatch = !q || rowSearch.includes(q);
-      row.style.display = (catMatch && searchMatch) ? "" : "none";
-    });
+    applyReportFilters(modal);
   };
 
   // Report modal URL copy helper
