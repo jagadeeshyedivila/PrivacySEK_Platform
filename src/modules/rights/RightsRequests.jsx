@@ -1,49 +1,241 @@
 import ModuleView from "../../components/ModuleView.jsx";
-import { platformApi } from "../../platform/platformApi.js";
+import {
+  COMPANY,
+  REQUEST_TYPES,
+  SUBJECT_TYPES,
+  CHANNELS,
+  LANGUAGES,
+  PROPERTIES,
+  REGULATIONS,
+  SYSTEMS,
+  MACROS,
+  DEMO_ACCOUNTS,
+  ROLES,
+  typeRef,
+  loadRightsState,
+  saveRightsState,
+  resetRightsState,
+  loadCurrentUser,
+  saveCurrentUser,
+} from "./rightsData.js";
+import {
+  RIGHTS_TOP_TABS,
+  STAGES,
+  CLOSED,
+  DATE_RANGES,
+  FORM_TABS,
+  FORM_SECTIONS,
+  DETAIL_TABS,
+  FIELD_TYPES,
+  createRightsUiState,
+} from "./rightsConfig.js";
+import { createDashboardRenderer } from "./screens/RightsDashboard.js";
+import { createRequestsRenderer } from "./screens/RightsRequestList.js";
+import { createRequestDetailRenderer } from "./screens/RightsRequestDetail.js";
+import { createFormsRenderer } from "./screens/RightsForms.js";
+import { createWorkflowsRenderer } from "./screens/RightsWorkflows.js";
+import { createTemplatesRenderer } from "./screens/RightsTemplates.js";
+import { createTasksRenderer } from "./screens/RightsTasks.js";
+import { registerRightsActions as registerActions } from "./actions/rightsActions.js";
+import "./rights.css";
 
-const RSTEPS=["Received","Verified","Located","Fulfilled","Reviewed","Responded"];
+const ui = createRightsUiState();
+let runtime;
+let renderers;
+let currentUser = loadCurrentUser();
+let saveTimer = null;
 
-function dsrDrawer(runtime) {
-  const { S, btn, drawer, pill, table } = runtime; var r=S.curDsr; var step = S.dsrStep[r.id]!=null ? S.dsrStep[r.id] : r.step;
-  var stp='<div class="stepper">'+RSTEPS.map(function(x,k){ return '<div class="stp '+(k<step?"done":k===step?"cur":"")+'"><div class="ln"></div><span>'+x+'</span></div>'; }).join("")+'</div>';
-  var body=stp+'<div class="g g3" style="gap:10px"><div class="clock '+(parseInt(r.due)<=5?"hot":"")+'"><small>Statutory clock</small><b>'+(r.due==="Done"||r.due==="—"?r.due:r.due+" left")+'</b><span class="dim" style="font-size:12px">'+(r.t==="Grievance"?"Rule 14 · 90 days":"Policy SLA · 30 days")+'</span></div><div class="clock"><small>Identity</small><b style="font-size:16px">'+(step>=1?"Verified · OTP":"Pending")+'</b></div><div class="clock"><small>Language</small><b style="font-size:16px">'+r.lang+'</b></div></div>'+
-   '<dl class="kv"><dt>Type</dt><dd>'+r.t+' · '+r.ref+'</dd><dt>Data principal</dt><dd>'+r.who+'</dd><dt>Channel</dt><dd>'+r.ch+'</dd><dt>Received</dt><dd>'+r.rec+' 2026</dd></dl>';
-  if(r.t==="Grievance") body+='<div class="banner r"><span><b>Escalation risk.</b> If not resolved, the data principal may complain to the Data Protection Board (s.13(3)).</span></div><div class="field"><label for="g-r">Response (Tamil and English)</label><textarea id="g-r">We have reviewed your complaint about promotional calls after you withdrew consent. Calls stopped on 29 July. We have confirmed with our collections partner that your number is excluded, and Purpose Guard now blocks marketing use of your record.</textarea></div>';
-  else body+='<div><div class="sec-t">Located data · Person Finder</div><div class="card">'+table(["System","Fields","Action"],[["Salesforce CRM","name, email, mobile",r.t==="Erasure"?"Delete":r.t==="Correction"?"Correct":"Include"],["Core (core-db)","Aadhaar, PAN, address",r.t==="Erasure"?pill("risk","Retain · KYC hold"):"Include"],["MoEngage","mobile, consent flags",r.t==="Erasure"?"Delete":"Include"]])+'</div></div>';
-  drawer(r.id, r.t+" · "+r.who, body, btn("Write to ledger","toastm","Step recorded in the Proof Ledger")+(step<5?btn("Advance to "+RSTEPS[step+1],"dsradv",null,"p"):pill("ok","Responded")), true);
+const DAY = 864e5;
+const state = () => loadRightsState();
+const safe = value => runtime.esc(String(value ?? ""));
+const formatDate = d => d ? new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—";
+const formatDateTime = d => d ? new Date(d).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" }) : "—";
+const isClosed = r => CLOSED.includes(r.status);
+const dueIn = r => Math.ceil((new Date(r.deadline) - Date.now()) / DAY);
+const canEdit = () => Boolean(ROLES[currentUser.role]?.edit);
+// Attribute that disables a control for read-only roles
+const dis = () => (canEdit() ? "" : 'disabled title="Read-only: your role cannot change data"');
+const inRange = r => Date.now() - new Date(r.created) <= ui.range * DAY;
 
+function statusPill(status) {
+  const tone = { New: "n", "Verifying Identity": "risk", "In Progress": "info", Complete: "ok", Rejected: "act" }[status] || "n";
+  return runtime.pill(tone, status);
 }
 
-export function createRightsRequestsView(runtime) {
-  const { D, btn, card, curTab, head, kpi, pill, table, tabs } = runtime;
-  return function(){
-  var t=curTab("rights","queue");
-  var h=head("Prove","Rights Requests","Access, correction, erasure, nomination and grievances under sections 11 to 14, with statutory clocks and evidence.", btn("Open public portal",null,null,"").replace('data-act="null"','data-act="tab" data-arg="rights|portal"')+btn("Manual request","toastm","Request created from a branch form","p","plus"))+
-    tabs("rights",[["queue","All requests"],["grv","Grievances · 2"],["nom","Nominations"],["portal","Rights portal"]]);
-  var list = t==="grv"?D.rights.filter(function(r){return r.t==="Grievance";}) : t==="nom"?D.rights.filter(function(r){return r.t==="Nomination";}) : D.rights;
-  if(t==="portal") return h+'<div class="g g2" style="align-items:start">'+card("Public rights portal · rights.aarohan.example", '<div class="phone"><div class="ph-top"></div><div class="ph-b"><div style="background:#B45309;color:#fff;border-radius:12px;padding:12px"><b>Data Principal Rights</b><div style="font-size:11.5px;opacity:.9">Access, correct, erase or nominate. Available in 23 languages.</div></div><label style="font-weight:600">What right are you exercising?</label><select style="height:36px;border-radius:8px;border:1px solid #E3E7ED;padding:0 8px"><option>Access my data · s.11</option><option>Correct my data · s.12(2)(a)</option><option>Complete my data · s.12(2)(b)</option><option>Update my data · s.12(2)(c)</option><option>Delete my data · s.12(3)</option><option>Nominate someone · s.14</option><option>Raise a grievance · s.13</option></select><label style="font-weight:600">Registered mobile</label><input style="height:36px;border-radius:8px;border:1px solid #E3E7ED;padding:0 8px" value="+91 98••• ••210"><button class="btn t" style="justify-content:center">Verify with OTP</button><span style="color:#5E6A84;font-size:11px">Response within 90 days (Rule 14). Contact: dpo@aarohan.example</span></div></div>')+card("Portal settings", '<dl class="kv"><dt>Languages</dt><dd>23</dd><dt>Identifiers</dt><dd>Customer ID, mobile, email</dd><dt>Verification</dt><dd>OTP; video KYC for erasure of loan records</dd><dt>Nominee verification</dt><dd>Death certificate or incapacity proof + ID</dd><dt>Clock</dt><dd>90 days for grievances (Rule 14)</dd></dl>')+'</div>';
-  return h+(t==="queue"?'<div class="g g4">'+kpi("Open","75","0 overdue","#14B8A6")+kpi("Due in 7 days","5","3 grievances","#F59E0B")+kpi("Median time to close","9 days","Target 30","#3B82F6")+kpi("Closed on time","98%",'<span class="tr">+7 pts</span> this quarter',"#14B8A6")+'</div>':'')+
-   card(null, table(["Request","Type","Data principal","Channel","Received","Clock","Status"], list.map(function(r){ return ['<span class="mono"><b>'+r.id+'</b></span>', r.t+'<span class="sub mono">'+r.ref+'</span>', r.who, '<span class="muted">'+r.ch+'</span>', r.rec, r.due==="Done"||r.due==="—"?'<span class="dim">'+r.due+'</span>':'<span class="mono" style="color:var(--'+(parseInt(r.due)<=5?"block":parseInt(r.due)<=15?"mask":"text-2")+')">'+r.due+' left</span>', pill(r.st==="Escalated"?"act":r.st==="Awaiting approval"||r.st==="Drafting"?"risk":r.st==="Responded"||r.st==="Verified"?"ok":"info", r.st)]; }), "dsr"), null, true);
-};
+function dueBadge(r) {
+  if (isClosed(r)) return '<span class="rr-due is-closed">—</span>';
+  const d = dueIn(r);
+  if (d < 0) return `<span class="rr-due is-late">${-d} days late</span>`;
+  return `<span class="rr-due ${d <= 7 ? "is-soon" : ""}">${d} days</span>`;
 }
 
-
-export function registerRightsRequestsActions(runtime, ACT, AFTER) {
-  const { D, S, curTab, ledgerAdd, render, toast } = runtime;
-  ACT.dsr = function(i){ var tab=curTab("rights","queue"); var list = tab==="grv"?D.rights.filter(function(r){return r.t==="Grievance";}) : tab==="nom"?D.rights.filter(function(r){return r.t==="Nomination";}) : D.rights; var r=list[i]; S.curDsr=r; dsrDrawer(runtime); }
-  ACT.dsradv = function(){
-    var r=S.curDsr;
-    var s=(S.dsrStep[r.id]!=null?S.dsrStep[r.id]:r.step)+1;
-    S.dsrStep[r.id]=s;
-    r.st=RSTEPS[s];
-    platformApi.advanceRightsStep(r.id, s).catch(err => {
-      console.warn("Failed to persist rights step advance in MongoDB:", err.message);
-    });
-    ledgerAdd("Rights request: "+RSTEPS[s], r.id+" · "+r.t);
-    dsrDrawer(runtime);
-    render();
-    toast(r.id+" moved to "+RSTEPS[s]);
+// Saves immediately, or after typing pauses when `soon` is set (form editor fields)
+function persist(message, soon) {
+  clearTimeout(saveTimer);
+  if (soon) {
+    saveTimer = setTimeout(() => saveRightsState(state()), 600);
+  } else {
+    saveRightsState(state());
   }
+  if (message) runtime.toast(message);
+}
+
+function logActivity(request, text) {
+  const at = new Date().toISOString();
+  request.activity = request.activity || [];
+  request.activity.push({ at, by: currentUser.name, text });
+  request.updated = at;
+}
+
+// Removes every tag and attribute except simple formatting from rich text
+function sanitizeRich(html) {
+  const allowed = new Set(["B", "STRONG", "I", "EM", "U", "BR", "P", "DIV", "UL", "OL", "LI"]);
+  const doc = new DOMParser().parseFromString(`<div>${html || ""}</div>`, "text/html");
+  const walk = node => {
+    [...node.childNodes].forEach(child => {
+      if (child.nodeType === 1) {
+        if (!allowed.has(child.tagName)) {
+          child.replaceWith(...child.childNodes);
+          walk(node);
+          return;
+        }
+        [...child.attributes].forEach(a => child.removeAttribute(a.name));
+        walk(child);
+      } else if (child.nodeType !== 3) {
+        child.remove();
+      }
+    });
+  };
+  const root = doc.body.firstChild;
+  walk(root);
+  return root.innerHTML;
+}
+
+function getContext() {
+  return {
+    get state() { return state(); },
+    get currentUser() { return currentUser; },
+    runtime,
+    ui,
+    COMPANY, REQUEST_TYPES, SUBJECT_TYPES, CHANNELS, LANGUAGES, PROPERTIES, REGULATIONS, SYSTEMS, MACROS,
+    DEMO_ACCOUNTS, ROLES, STAGES, CLOSED, DATE_RANGES, FORM_TABS, FORM_SECTIONS, DETAIL_TABS, FIELD_TYPES,
+    typeRef, safe, formatDate, formatDateTime, isClosed, dueIn, canEdit, dis, inRange, statusPill, dueBadge,
+    persist, logActivity, sanitizeRich,
+    switchUser: user => {
+      currentUser = user;
+      saveCurrentUser(user);
+    },
+    resetState: () => resetRightsState(),
+    get renderers() { return renderers; },
+  };
+}
+
+export function createRightsRequestsView(moduleRuntime) {
+  runtime = moduleRuntime;
+  const context = getContext();
+  renderers = {
+    dashboard: createDashboardRenderer(context),
+    requests: createRequestsRenderer(context),
+    detail: createRequestDetailRenderer(context),
+    forms: createFormsRenderer(context),
+    workflows: createWorkflowsRenderer(context),
+    templates: createTemplatesRenderer(context),
+    tasks: createTasksRenderer(context),
+  };
+
+  return function renderRightsRequests() {
+    const activeTab = ui.topTab || "dashboard";
+    const allowed = ROLES[currentUser.role]?.tabs || [];
+    const isAllowed = allowed.includes(activeTab);
+    const tabLabel = (RIGHTS_TOP_TABS.find(([id]) => id === activeTab) || [])[1] || "Rights Requests";
+    const openCount = state().requests.filter(r => !isClosed(r)).length;
+
+    const nav = `
+      <nav class="rr-top-nav" aria-label="Rights Requests sections">
+        ${RIGHTS_TOP_TABS.map(([id, label]) => {
+          const permitted = allowed.includes(id);
+          return `
+            <button class="rr-top-nav-btn ${activeTab === id ? "active" : ""} ${permitted ? "" : "restricted"}"
+              data-act="rr-tab" data-arg="${id}" aria-current="${activeTab === id ? "page" : "false"}"
+              title="${safe(label)}${permitted ? "" : ` (restricted for ${safe(currentUser.role)})`}">
+              ${safe(label)}
+              ${id === "requests" ? `<span class="rr-nav-count">${openCount}</span>` : ""}
+              ${permitted ? "" : '<span class="rr-lock" aria-hidden="true">🔒</span>'}
+            </button>
+          `;
+        }).join("")}
+      </nav>
+    `;
+
+    const initials = currentUser.name.split(" ").map(w => w[0]).join("");
+    const crumbTail = activeTab === "requests" && ui.selectedRequestId ? ` <span>/</span> <b>${safe(ui.selectedRequestId)}</b>`
+      : activeTab === "forms" && ui.selectedFormId ? ` <span>/</span> <b>${safe((state().forms.find(f => f.id === ui.selectedFormId) || {}).name || "Form")}</b>`
+      : "";
+
+    const meta = `
+      <div class="rr-meta-bar">
+        <div class="rr-crumb"><span>Rights Requests</span><span>/</span><b>${safe(tabLabel)}</b>${crumbTail}</div>
+        <div class="rr-meta-actions">
+          <div class="rr-user-wrap">
+            <button class="rr-user-badge" data-act="rr-toggle-user-menu" aria-haspopup="menu" aria-expanded="${ui.userMenuOpen}" title="Switch demo account">
+              <span class="rr-user-avatar">${safe(initials)}</span>
+              <span class="rr-user-name">${safe(currentUser.name)}</span>
+              <span class="rr-role-tag">${safe(currentUser.role)}</span>
+              <span class="rr-caret" aria-hidden="true">▾</span>
+            </button>
+            ${ui.userMenuOpen ? `
+              <div class="rr-user-menu" role="menu">
+                <div class="rr-user-menu-h">Switch demo account</div>
+                ${DEMO_ACCOUNTS.map(a => `
+                  <button class="rr-user-item ${a.id === currentUser.id ? "active" : ""}" data-act="rr-switch-user" data-arg="${safe(a.id)}" role="menuitem">
+                    <b>${safe(a.name)}</b>
+                    <small>${safe(a.role)} · ${ROLES[a.role].edit ? "Can create and change records" : "Read-only"}</small>
+                  </button>
+                `).join("")}
+              </div>
+            ` : ""}
+          </div>
+          <button class="btn sm" data-act="rr-reset" ${dis()}>Reset demo data</button>
+        </div>
+      </div>
+    `;
+
+    const readOnly = canEdit() ? "" : `
+      <div class="rr-banner is-warn" role="status">
+        <b>Read-only.</b> Your role (${safe(currentUser.role)}) can view requests but cannot change them.
+      </div>
+    `;
+
+    let body;
+    if (!isAllowed) {
+      body = `
+        <div class="card rr-restricted">
+          <h3>Access restricted</h3>
+          <p>Your role (${safe(currentUser.role)}) cannot open ${safe(tabLabel)}.</p>
+          <button class="btn sm t" data-act="rr-tab" data-arg="dashboard">Back to Dashboard</button>
+        </div>
+      `;
+    } else if (activeTab === "requests" && ui.selectedRequestId) {
+      body = renderers.detail.render();
+    } else {
+      body = renderers[activeTab] ? renderers[activeTab].render() : '<div class="card rr-restricted">Section not found.</div>';
+    }
+
+    return `
+      <div class="page rr-module">
+        ${runtime.head("Prove", "Rights Requests", "Access, correction, erasure, nomination and grievance requests with statutory clocks, workflows and evidence in the Proof Ledger.")}
+        ${nav}
+        ${meta}
+        ${readOnly}
+        <div class="rr-body">${body}</div>
+      </div>
+    `;
+  };
+}
+
+export function registerRightsRequestsActions(moduleRuntime, ACT) {
+  runtime = moduleRuntime;
+  registerActions(getContext(), ACT);
 }
 
 export default function RightsRequests({ html }) {
