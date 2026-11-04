@@ -33,6 +33,16 @@ export const STORE_SCHEMAS = {
     },
     singles: ["builder", "email"]
   },
+  rights: {
+    legacyStorageKey: "rr_rights_state_v1",
+    collections: {
+      requests: { name: "rights_dsar_requests", key: "id" },
+      forms: { name: "rights_web_forms", key: "id" },
+      workflows: { name: "rights_workflows", key: "id" },
+      templates: { name: "rights_email_templates", key: "id" }
+    },
+    singles: []
+  },
   discovery: {
     legacyStorageKey: "privacysek.discovery.demo.v1",
     collections: {

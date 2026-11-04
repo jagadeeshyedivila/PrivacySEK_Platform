@@ -4,8 +4,9 @@ import { STORE_SCHEMAS, splitState } from '../../src/platform/storeSchemas.js';
 import { createInitialRopaData } from '../../src/modules/ropa/ropaData.js';
 import { createDefaultConsentState } from '../../src/modules/consent/consentData.js';
 import { createInitialDiscoveryData } from '../../src/modules/discovery/discoveryData.js';
+import { createInitialRightsData } from '../../src/modules/rights/rightsData.js';
 
-// Editable module records (ROPA, Consent, Data Discovery), one document per record.
+// Editable module records (ROPA, Consent, Data Discovery, Rights Requests), one document per record.
 //
 //   GET    /api/store/:module                 everything the module persists (seeds on first use)
 //   GET    /api/store/:module/:coll           one collection, in display order
@@ -21,6 +22,7 @@ const SEEDS = {
   ropa: createInitialRopaData,
   consent: createDefaultConsentState,
   discovery: createInitialDiscoveryData,
+  rights: createInitialRightsData,
 };
 
 const STATE_COLLECTION = 'module_state';
