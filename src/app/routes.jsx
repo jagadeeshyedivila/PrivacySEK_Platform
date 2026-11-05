@@ -11,7 +11,7 @@ import Retention, { createRetentionView } from "../modules/retention/Retention.j
 import VendorRisk, { createVendorRiskView, registerVendorRiskActions } from "../modules/vendors/VendorRisk.jsx";
 import RightsRequests, { createRightsRequestsView, registerRightsRequestsActions } from "../modules/rights/RightsRequests.jsx";
 import BreachResponse, { createBreachResponseView, registerBreachResponseActions } from "../modules/breach/BreachResponse.jsx";
-import Assessments, { createAssessmentsView, registerAssessmentsActions } from "../modules/assessments/Assessments.jsx";
+import Dpia, { createDpiaView, registerDpiaActions } from "../modules/dpia/Dpia.jsx";
 import ProofLedger, { createProofLedgerView, registerProofLedgerActions } from "../modules/proof-ledger/ProofLedger.jsx";
 import Reports, { createReportsView, registerReportsActions } from "../modules/reports/Reports.jsx";
 import AiGovernance, { createAiGovernanceView, registerAiGovernanceActions } from "../modules/ai-governance/AiGovernance.jsx";
@@ -35,7 +35,7 @@ export const MODULE_RENDERERS = {
   vendors: createVendorRiskView,
   rights: createRightsRequestsView,
   breach: createBreachResponseView,
-  assess: createAssessmentsView,
+  assess: createDpiaView,
   ledger: createProofLedgerView,
   reports: createReportsView,
   ai: createAiGovernanceView,
@@ -60,7 +60,7 @@ export const MODULE_COMPONENTS = {
   vendors: VendorRisk,
   rights: RightsRequests,
   breach: BreachResponse,
-  assess: Assessments,
+  assess: Dpia,
   ledger: ProofLedger,
   reports: Reports,
   ai: AiGovernance,
@@ -84,7 +84,7 @@ export const MODULE_ACTIONS = {
   vendors: registerVendorRiskActions,
   rights: registerRightsRequestsActions,
   breach: registerBreachResponseActions,
-  assess: registerAssessmentsActions,
+  assess: registerDpiaActions,
   ledger: registerProofLedgerActions,
   reports: registerReportsActions,
   ai: registerAiGovernanceActions,

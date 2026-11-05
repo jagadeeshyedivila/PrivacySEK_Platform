@@ -3,6 +3,7 @@ import { findRecord, nextId } from "../ropaData.js";
 import { evaluateRecord, validateStep, validateField, isVisible } from "../ropaRules.js";
 import { syncWizard, isDirty, cleanRecord, snapshot } from "../shared/RopaWizard.js";
 import { plural } from "../shared/format.js";
+import { queueDpiaForActivity } from "../../dpia/actions/dpiaActions.js";
 
 let focusoutBound = false;
 
@@ -282,17 +283,18 @@ export function registerWizardActions(context, ACT) {
     attest(p[0], p[1], false);
   };
 
+  // Opens the DPIA module with a new assessment for this activity; the DPIA module keeps the
+  // activity's DPIA state in step with the assessment from then on
   ACT["rp-start-dpia"] = function(id) {
     const store = context.getStore();
     const rec = findRecord(store, "act", id);
-    if (rec) {
+    if (rec && rec.dpia !== "Yes") {
       rec.dpia = "Yes";
-      if (!rec.dpiaState || rec.dpiaState === "Not started") rec.dpiaState = "In progress";
+      if (!rec.dpiaState) rec.dpiaState = "Not started";
       context.saveStore(store);
     }
-    ledgerAdd("DPIA screening created for " + id, rec ? rec.name : "");
-    toast("DPIA screening created for " + id);
     ui.wiz = null;
+    queueDpiaForActivity(id);
     location.hash = "assess";
   };
 

@@ -14,7 +14,7 @@ const ALL_MODULES = [
   { id: "vendors", title: "Vendor Risk" },
   { id: "rights", title: "Rights Requests" },
   { id: "breach", title: "Breach Response" },
-  { id: "assess", title: "Assessments" },
+  { id: "assess", title: "DPIA" },
   { id: "ledger", title: "Proof Ledger" },
   { id: "reports", title: "Reports" },
   { id: "ai", title: "AI Governance" },

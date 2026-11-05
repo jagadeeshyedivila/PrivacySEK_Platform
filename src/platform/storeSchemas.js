@@ -43,6 +43,15 @@ export const STORE_SCHEMAS = {
     },
     singles: []
   },
+  dpia: {
+    legacyStorageKey: "dpia_state_v1",
+    collections: {
+      templates: { name: "dpia_templates", key: "id" },
+      assessments: { name: "dpia_assessments", key: "id" },
+      tasks: { name: "dpia_tasks", key: "id" }
+    },
+    singles: []
+  },
   discovery: {
     legacyStorageKey: "privacysek.discovery.demo.v1",
     collections: {
