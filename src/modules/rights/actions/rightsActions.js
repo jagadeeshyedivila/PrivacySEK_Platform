@@ -1,5 +1,8 @@
 // Every user action in the Rights Requests module. Changes are saved to MongoDB through the
-// module store, and status changes are written to the Proof Ledger.
+// module store, and status changes are written to the Proof Ledger. Web form actions live in
+// formActions.js.
+import { registerFormActions, requestLeave } from "./formActions.js";
+
 export function registerRightsActions(ctx, ACT) {
   const {
     runtime, ui, safe, STAGES, REQUEST_TYPES, SUBJECT_TYPES, CHANNELS, LANGUAGES, PROPERTIES, REGULATIONS, SYSTEMS, MACROS,
@@ -14,7 +17,6 @@ export function registerRightsActions(ctx, ACT) {
   const val = sel => ($(sel)?.value || "").trim();
   const findRequest = id => state().requests.find(r => r.id === id);
   const findForm = id => state().forms.find(f => f.id === id);
-  const currentForm = () => findForm(ui.selectedFormId);
   const isEmail = v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 
   // Every change goes through here: read-only roles are stopped with a message
@@ -37,22 +39,30 @@ export function registerRightsActions(ctx, ACT) {
   };
 
   /* ---------------- navigation & shell ---------------- */
+  // Leaving the web form editor asks first when it has unsaved changes
   ACT["rr-tab"] = tab => {
-    ui.topTab = tab;
-    ui.selectedRequestId = null;
-    ui.selectedFormId = null;
     ui.userMenuOpen = false;
-    render();
+    requestLeave(() => {
+      ui.topTab = tab;
+      ui.selectedRequestId = null;
+      ui.selectedFormId = null;
+      render();
+    });
   };
   ACT["rr-toggle-user-menu"] = () => { ui.userMenuOpen = !ui.userMenuOpen; render(); };
   ACT["rr-switch-user"] = id => {
     const user = DEMO_ACCOUNTS.find(a => a.id === id);
     if (!user) return;
-    ctx.switchUser(user);
     ui.userMenuOpen = false;
-    if (!ROLES[user.role].tabs.includes(ui.topTab)) ui.topTab = "dashboard";
-    render();
-    toast(`Signed in as ${user.name} (${user.role})`);
+    const apply = () => {
+      ctx.switchUser(user);
+      if (!ROLES[user.role].tabs.includes(ui.topTab)) { ui.topTab = "dashboard"; ui.selectedFormId = null; }
+      render();
+      toast(`Signed in as ${user.name} (${user.role})`);
+    };
+    // Someone who cannot edit would be left holding unsaved changes they cannot save
+    if (!ROLES[user.role].edit) requestLeave(() => { ui.selectedFormId = null; apply(); });
+    else apply();
   };
   ACT["rr-reset"] = guard(() => {
     runtime.modal("Reset demo data?", "Rights Requests", "<p>This restores the original requests, forms, workflows and templates. Changes you made are lost.</p>",
@@ -61,7 +71,7 @@ export function registerRightsActions(ctx, ACT) {
   ACT["rr-confirm-reset"] = guard(async () => {
     runtime.closeOv();
     await ctx.resetState();
-    Object.assign(ui, { selectedRequestId: null, selectedFormId: null, reqPage: 1, wfPage: 1, userMenuOpen: false });
+    Object.assign(ui, { selectedRequestId: null, selectedFormId: null, formDraft: null, newField: null, reqPage: 1, wfPage: 1, userMenuOpen: false });
     render();
     toast("Demo data restored");
   });
@@ -89,6 +99,10 @@ export function registerRightsActions(ctx, ACT) {
   ACT["rr-request-row"] = i => ACT["rr-open-request"](ui.reqPagedIds[Number(i)]);
   ACT["rr-open-request"] = id => {
     if (!id || !findRequest(id)) return;
+    requestLeave(() => openRequest(id));
+  };
+  const openRequest = id => {
+    ui.selectedFormId = null;
     ui.topTab = "requests";
     ui.selectedRequestId = id;
     ui.detailTab = "Activity";
@@ -141,39 +155,36 @@ export function registerRightsActions(ctx, ACT) {
     `, modalFoot("rr-save-request", "Create request"));
   });
 
-  ACT["rr-save-request"] = guard(() => {
-    const formId = val("#rr-nr-form"), first = val("#rr-nr-first"), last = val("#rr-nr-last"), email = val("#rr-nr-email");
-    if (!formId) return showError("#rr-nr-error", "Select the web form this request belongs to.");
-    if (!first || !last) return showError("#rr-nr-error", "Enter the data principal's first and last name.");
-    if (!isEmail(email)) return showError("#rr-nr-error", "Enter a valid email address.");
-    const form = findForm(formId);
-    const type = val("#rr-nr-type");
+  // A new request raised through `form`, from the New request modal or a web form submission
+  function buildRequest({ form, type, subject, first, last, email, mobile, state: st, city, language, channel, details, answers, attachment, activity }) {
     const created = new Date();
     const days = type === "Grievance" ? 90 : Number(form.deadlineDays) || 30;
     const workflow = state().workflows.find(w => w.regulation === "DPDP" && w.requestType === type) || state().workflows.find(w => w.requestType === type);
-    const request = {
+    return {
       id: nextId(type),
       type,
-      subject: val("#rr-nr-subject"),
+      subject,
       status: "New",
       first, last, email,
-      mobile: val("#rr-nr-mobile") || "—",
-      state: "—", city: "—", country: "India",
-      language: val("#rr-nr-lang"),
-      channel: val("#rr-nr-channel"),
-      form: formId,
+      mobile: mobile || "—",
+      state: st || "—", city: city || "—", country: "India",
+      language,
+      channel,
+      form: form.id,
       property: form.property,
       approver: ctx.currentUser.name,
       workflow: workflow ? workflow.name : "—",
       risk: type === "Grievance" ? "High" : "Low",
-      details: val("#rr-nr-details") || "Logged manually.",
+      details: details || (channel === "Rights portal" ? "—" : "Logged manually."),
+      answers: answers || [],
+      attachment: attachment || "",
       created: created.toISOString(),
       updated: created.toISOString(),
       deadline: new Date(created.getTime() + days * DAY).toISOString(),
       completedAt: null,
       verified: false,
       rejectReason: "",
-      activity: [{ at: created.toISOString(), by: ctx.currentUser.name, text: `Request logged manually from ${val("#rr-nr-channel")}.` }],
+      activity: [{ at: created.toISOString(), by: channel === "Rights portal" ? "System" : ctx.currentUser.name, text: activity }],
       emails: [],
       tasks: [],
       systems: (form.systems || []).map(name => {
@@ -181,8 +192,21 @@ export function registerRightsActions(ctx, ACT) {
         return { name: s.name, fields: s.fields, action: type === "Erasure" ? (s.name.startsWith("Core") ? "Retain · KYC hold" : "Delete") : type === "Correction" ? "Correct" : "Include", state: "Not searched" };
       }),
     };
+  }
+
+  ACT["rr-save-request"] = guard(() => {
+    const formId = val("#rr-nr-form"), first = val("#rr-nr-first"), last = val("#rr-nr-last"), email = val("#rr-nr-email");
+    if (!formId) return showError("#rr-nr-error", "Select the web form this request belongs to.");
+    if (!first || !last) return showError("#rr-nr-error", "Enter the data principal's first and last name.");
+    if (!isEmail(email)) return showError("#rr-nr-error", "Enter a valid email address.");
+    const channel = val("#rr-nr-channel");
+    const request = buildRequest({
+      form: findForm(formId), type: val("#rr-nr-type"), subject: val("#rr-nr-subject"), first, last, email,
+      mobile: val("#rr-nr-mobile"), language: val("#rr-nr-lang"), channel, details: val("#rr-nr-details"),
+      activity: `Request logged manually from ${channel}.`,
+    });
     state().requests.unshift(request);
-    runtime.ledgerAdd("Rights request received", `${request.id} · ${type}`);
+    runtime.ledgerAdd("Rights request received", `${request.id} · ${request.type}`);
     persist();
     runtime.closeOv();
     ACT["rr-open-request"](request.id);
@@ -319,136 +343,6 @@ export function registerRightsActions(ctx, ACT) {
     render();
   });
 
-  /* ---------------- web forms ---------------- */
-  ACT["rr-open-form"] = id => {
-    if (!findForm(id)) return;
-    ui.topTab = "forms";
-    ui.selectedFormId = id;
-    ui.selectedRequestId = null;
-    ui.formTab = "Basic";
-    ui.addingField = false;
-    render();
-  };
-  ACT["rr-forms-back"] = () => { ui.selectedFormId = null; ui.addingField = false; render(); };
-  ACT["rr-form-tab"] = t => { ui.formTab = t; ui.addingField = false; render(); };
-  ACT["rr-form-section"] = s => { ui.formSection = ui.formSection === s ? "" : s; ui.addingField = false; render(); };
-
-  ACT["rr-new-form"] = guard(() => {
-    runtime.modal("New web form", "Rights Requests", `
-      <div class="rr-field"><label for="rr-nf-name">Form name *</label><input id="rr-nf-name" autocomplete="off"></div>
-      <div class="rr-field"><label for="rr-nf-property">Property</label><select id="rr-nf-property">${PROPERTIES.map(p => `<option>${safe(p)}</option>`).join("")}</select></div>
-      <p class="rr-error" id="rr-nf-err" role="alert"></p>
-    `, modalFoot("rr-save-new-form", "Create form"));
-  });
-  ACT["rr-save-new-form"] = guard(() => {
-    const name = val("#rr-nf-name");
-    if (!name) return showError("#rr-nf-err", "Form name is required.");
-    if (state().forms.some(f => f.name.toLowerCase() === name.toLowerCase())) return showError("#rr-nf-err", "A form with this name already exists.");
-    const base = JSON.parse(JSON.stringify(state().forms[0] || {}));
-    const now = nowIso();
-    const form = {
-      ...base,
-      id: "form-" + Date.now().toString(36),
-      name,
-      property: val("#rr-nf-property"),
-      status: "Draft",
-      created: now,
-      updated: now,
-      custom: [],
-      history: [],
-      requestTypes: base.requestTypes || REQUEST_TYPES.slice(0, 3).map(t => t.id),
-      subjectTypes: base.subjectTypes || ["Customer"],
-      systems: base.systems || [],
-    };
-    state().forms.push(form);
-    persist("Form created as a draft");
-    runtime.closeOv();
-    ACT["rr-open-form"](form.id);
-    return undefined;
-  });
-  ACT["rr-delete-form"] = guard(id => {
-    const f = findForm(id);
-    const used = state().requests.filter(r => r.form === id).length;
-    runtime.modal("Delete this form?", f.name, `<p>The public link stops working.${used ? ` ${used} existing requests keep their data.` : ""}</p>`,
-      modalFoot("rr-confirm-delete-form", "Delete form", "d", id));
-  });
-  ACT["rr-confirm-delete-form"] = guard(id => {
-    state().forms = state().forms.filter(f => f.id !== id);
-    persist("Form deleted");
-    runtime.closeOv();
-    ui.selectedFormId = null;
-    render();
-  });
-  ACT["rr-form-history"] = id => {
-    const f = findForm(id);
-    runtime.modal("Publish history", f.name, (f.history || []).length ? `
-      <ol class="rr-timeline">${f.history.map(h => `<li><span class="rr-tl-dot" aria-hidden="true"></span><div><b>Version ${h.v}</b> <small>${safe(ctx.formatDateTime(h.at))}</small><p>Published by ${safe(h.by)}</p></div></li>`).join("")}</ol>
-    ` : "<p>This form has never been published.</p>", '<button class="btn" data-act="close">Close</button>');
-  };
-
-  // Field edits refresh the preview in place, so colour pickers and focus are not interrupted
-  ACT["rr-form-set"] = (value, el) => {
-    const f = currentForm();
-    if (!f || !canEdit()) return;
-    const key = el.getAttribute("data-key");
-    f[key] = ["headerSize", "footerSize", "deadlineDays"].includes(key) ? Number(value) || 0 : value;
-    f.updated = nowIso();
-    persist(null, true);
-    const pv = $(".rr-preview");
-    if (pv) pv.outerHTML = ctx.renderers.forms.preview(f);
-    if (key === "name") {
-      const h = $(".rr-detail-title h2");
-      if (h) h.textContent = value;
-    }
-  };
-  ACT["rr-form-toggle"] = (checked, el) => {
-    const f = currentForm();
-    if (!f) return;
-    if (!canEdit()) { render(); return; }
-    const key = el.getAttribute("data-key"), v = el.getAttribute("data-value");
-    const on = checked === "true";
-    if (!on && key === "requestTypes" && f.requestTypes.length === 1) { toast("Keep at least one request type on the form"); render(); return; }
-    if (!on && key === "subjectTypes" && f.subjectTypes.length === 1) { toast("Keep at least one subject type on the form"); render(); return; }
-    f[key] = on ? f[key].concat(v) : f[key].filter(x => x !== v);
-    f.updated = nowIso();
-    persist();
-    render();
-  };
-  ACT["rr-form-flag"] = (checked, el) => {
-    const f = currentForm();
-    if (!f || !canEdit()) { render(); return; }
-    f[el.getAttribute("data-key")] = checked === "true";
-    f.updated = nowIso();
-    persist();
-    render();
-  };
-  ACT["rr-form-language"] = guard(v => { const f = currentForm(); f.language = v; persist(); render(); });
-  ACT["rr-form-verification"] = guard(v => { const f = currentForm(); f.verification = v; f.updated = nowIso(); persist(); render(); });
-
-  ACT["rr-field-add"] = guard(() => { ui.addingField = true; render(); });
-  ACT["rr-field-cancel"] = () => { ui.addingField = false; render(); };
-  ACT["rr-field-save"] = guard(() => {
-    const type = val("#rr-nf-type"), label = val("#rr-nf-label");
-    if (!type) return showError("#rr-nf-error", "Select a field type.");
-    if (!label) return showError("#rr-nf-error", "Enter a label.");
-    const options = val("#rr-nf-options").split(",").map(s => s.trim()).filter(Boolean);
-    if (["Select", "Radio", "Checkbox"].includes(type) && !options.length) return showError("#rr-nf-error", `${type} fields need at least one option.`);
-    const f = currentForm();
-    f.custom.push({ type, label, required: Boolean($("#rr-nf-required")?.checked), options });
-    f.updated = nowIso();
-    ui.addingField = false;
-    persist("Field added");
-    render();
-    return undefined;
-  });
-  ACT["rr-field-delete"] = guard(i => {
-    const f = currentForm();
-    f.custom.splice(Number(i), 1);
-    f.updated = nowIso();
-    persist("Field removed");
-    render();
-  });
-
   const richEditor = (id, html) => `
     <div class="rr-rich-bar" role="toolbar" aria-label="Formatting">
       <button type="button" class="btn sm" data-act="rr-rich" data-arg="bold" onmousedown="event.preventDefault()" aria-label="Bold"><b>B</b></button>
@@ -458,38 +352,6 @@ export function registerRightsActions(ctx, ACT) {
     <div id="${id}" class="rr-rich" contenteditable="true" role="textbox" aria-multiline="true">${sanitizeRich(html)}</div>
   `;
   ACT["rr-rich"] = cmd => { if (["bold", "italic", "underline"].includes(cmd)) document.execCommand(cmd); };
-
-  ACT["rr-edit-form-text"] = guard(key => {
-    const f = currentForm();
-    runtime.modal(key === "welcome" ? "Welcome text" : "Footer text", f.name, richEditor("rr-form-text", f[key]),
-      modalFoot("rr-save-form-text", "Save", "t", key));
-  });
-  ACT["rr-save-form-text"] = guard(key => {
-    const f = currentForm();
-    f[key] = sanitizeRich($("#rr-form-text")?.innerHTML || "");
-    f.updated = nowIso();
-    persist("Text saved");
-    runtime.closeOv();
-    render();
-  });
-  ACT["rr-save-form"] = guard(() => {
-    const f = currentForm();
-    if (!String(f.name).trim()) { toast("Form name is required"); return; }
-    f.updated = nowIso();
-    persist("Draft saved");
-    render();
-  });
-  ACT["rr-publish-form"] = guard(() => {
-    const f = currentForm();
-    if (!String(f.name).trim()) { toast("Form name is required"); return; }
-    const v = ((f.history || [])[0]?.v || 0) + 1;
-    f.status = "Published";
-    f.updated = nowIso();
-    f.history = [{ v, at: f.updated, by: ctx.currentUser.name }].concat(f.history || []);
-    runtime.ledgerAdd("Rights form published", `${f.name} · v${v}`);
-    persist(`Form published as version ${v}`);
-    render();
-  });
 
   /* ---------------- workflows ---------------- */
   ACT["rr-wf-search"] = q => { ui.wfSearch = q; ui.wfPage = 1; render(); };
@@ -616,4 +478,5 @@ export function registerRightsActions(ctx, ACT) {
   ACT["rr-task-filter"] = f => { ui.taskFilter = f; render(); };
   ACT["rr-task-search"] = q => { ui.taskSearch = q; render(); };
 
+  registerFormActions(ctx, ACT, { guard, modalFoot, showError, val, $, toast, render, nowIso, buildRequest });
 }

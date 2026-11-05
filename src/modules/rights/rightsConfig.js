@@ -48,7 +48,11 @@ export function createRightsUiState() {
     selectedFormId: null,
     formTab: "Basic",
     formSection: "Form fields",
-    addingField: false,
+    formDraft: null,        // copy of the form being edited; saved only on Save or Publish
+    newField: null,         // the custom field being added
+    previewLang: null,
+    formSearch: "",
+    formFilter: "all",
 
     // Workflows
     wfSearch: "",
