@@ -194,6 +194,8 @@ export function createRequestDetailRenderer(ctx) {
           ${info("Risk", `<span class="rr-risk is-${safe(String(r.risk).toLowerCase())}">${safe(r.risk)}</span>`)}
           ${info("Received", safe(formatDate(r.created)))}
           ${info("Due in", dueBadge(r))}
+          ${(r.answers || []).map(a => info(safe(a.label), safe(a.value))).join("")}
+          ${r.attachment ? info("Attachment", safe(r.attachment)) : ""}
           <div class="rr-info is-wide"><dt>Request details</dt><dd>${safe(r.details)}</dd></div>
         </dl>
       </section>

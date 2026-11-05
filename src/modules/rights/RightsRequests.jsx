@@ -44,6 +44,7 @@ let runtime;
 let renderers;
 let currentUser = loadCurrentUser();
 let saveTimer = null;
+let renderCount = 0;
 
 const DAY = 864e5;
 const state = () => loadRightsState();
@@ -87,19 +88,33 @@ function logActivity(request, text) {
   request.updated = at;
 }
 
-// Removes every tag and attribute except simple formatting from rich text
+// Keeps simple formatting only: a short list of tags, safe links and text alignment.
+// Everything else is unwrapped (tags) or dropped (attributes, comments, scripts).
+const RICH_TAGS = new Set(["B", "STRONG", "I", "EM", "U", "BR", "P", "DIV", "UL", "OL", "LI", "H3", "A"]);
+const ALIGNABLE = new Set(["P", "DIV", "H3", "LI"]);
 function sanitizeRich(html) {
-  const allowed = new Set(["B", "STRONG", "I", "EM", "U", "BR", "P", "DIV", "UL", "OL", "LI"]);
   const doc = new DOMParser().parseFromString(`<div>${html || ""}</div>`, "text/html");
   const walk = node => {
     [...node.childNodes].forEach(child => {
       if (child.nodeType === 1) {
-        if (!allowed.has(child.tagName)) {
-          child.replaceWith(...child.childNodes);
-          walk(node);
+        if (!RICH_TAGS.has(child.tagName)) {
+          if (["SCRIPT", "STYLE", "IFRAME", "OBJECT", "EMBED", "TEMPLATE"].includes(child.tagName)) child.remove();
+          else { const kids = [...child.childNodes]; child.replaceWith(...kids); kids.forEach(k => { if (k.nodeType === 1) walk({ childNodes: [k] }); }); }
           return;
         }
+        const href = child.getAttribute("href") || "";
+        const align = (child.getAttribute("style") || "").match(/text-align:\s*(left|center|right)/i);
         [...child.attributes].forEach(a => child.removeAttribute(a.name));
+        if (child.tagName === "A") {
+          if (/^(https:\/\/|mailto:)/i.test(href.trim())) {
+            child.setAttribute("href", href.trim());
+            child.setAttribute("target", "_blank");
+            child.setAttribute("rel", "noopener noreferrer");
+          } else {
+            const kids = [...child.childNodes]; child.replaceWith(...kids); return;
+          }
+        }
+        if (align && ALIGNABLE.has(child.tagName)) child.setAttribute("style", `text-align:${align[1].toLowerCase()}`);
         walk(child);
       } else if (child.nodeType !== 3) {
         child.remove();
@@ -169,7 +184,7 @@ export function createRightsRequestsView(moduleRuntime) {
 
     const initials = currentUser.name.split(" ").map(w => w[0]).join("");
     const crumbTail = activeTab === "requests" && ui.selectedRequestId ? ` <span>/</span> <b>${safe(ui.selectedRequestId)}</b>`
-      : activeTab === "forms" && ui.selectedFormId ? ` <span>/</span> <b>${safe((state().forms.find(f => f.id === ui.selectedFormId) || {}).name || "Form")}</b>`
+      : activeTab === "forms" && ui.selectedFormId ? ` <span>/</span> <b>${safe((ui.formDraft || state().forms.find(f => f.id === ui.selectedFormId) || {}).name || "Untitled form")}</b>`
       : "";
 
     const meta = `
@@ -228,6 +243,7 @@ export function createRightsRequestsView(moduleRuntime) {
         ${meta}
         ${readOnly}
         <div class="rr-body">${body}</div>
+        <span hidden data-rr-render="${++renderCount}"></span>
       </div>
     `;
   };

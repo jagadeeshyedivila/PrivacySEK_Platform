@@ -2,6 +2,7 @@
 // Requests, web forms, workflows and email templates are saved in MongoDB through the
 // module store; accounts, roles and option lists are reference data rebuilt on every load.
 import { createModuleStore } from "../../platform/moduleStore.js";
+import { normalizeForm } from "./forms/formModel.js";
 
 const USER_KEY = "rr_current_user_v1";
 const DAY = 864e5;
@@ -236,11 +237,12 @@ export function createInitialRightsData() {
       {
         id: "form-portal",
         name: "Data Principal Rights Portal",
+        identifier: "rights-portal",
         property: "Aarohan Personal Loans",
         status: "Published",
         created: new Date(now - 300 * DAY).toISOString(),
         updated: new Date(now - 12 * DAY).toISOString(),
-        language: "English",
+        languages: ["English", "Hindi", "Marathi", "Tamil"],
         requestTypes: REQUEST_TYPES.slice(0, 6).map(t => t.id),
         subjectTypes: ["Customer", "Borrower", "Nominee"],
         headerColor: "#0f766e",
@@ -257,19 +259,20 @@ export function createInitialRightsData() {
         systems: SYSTEMS.slice(0, 3).map(s => s.name),
         custom: [{ type: "Textbox", label: "Loan account number", required: false, options: [] }],
         history: [
-          { v: 3, at: new Date(now - 12 * DAY).toISOString(), by: "Meera Iyer" },
-          { v: 2, at: new Date(now - 90 * DAY).toISOString(), by: "Daniel Okafor" },
-          { v: 1, at: new Date(now - 300 * DAY).toISOString(), by: "Meera Iyer" },
+          { v: 3, at: new Date(now - 12 * DAY).toISOString(), by: "Meera Iyer", name: "Data Principal Rights Portal" },
+          { v: 2, at: new Date(now - 90 * DAY).toISOString(), by: "Daniel Okafor", name: "Data Principal Rights Portal" },
+          { v: 1, at: new Date(now - 300 * DAY).toISOString(), by: "Meera Iyer", name: "Customer Rights Form" },
         ],
       },
       {
         id: "form-employee",
         name: "Employee Data Request Form",
+        identifier: "employee-requests",
         property: "Aarohan HR",
         status: "Draft",
         created: new Date(now - 40 * DAY).toISOString(),
         updated: new Date(now - 5 * DAY).toISOString(),
-        language: "English",
+        languages: ["English", "Hindi"],
         requestTypes: ["Access", "Correction", "Erasure"],
         subjectTypes: ["Employee", "Contractor"],
         headerColor: "#1e3a8a",
@@ -287,7 +290,7 @@ export function createInitialRightsData() {
         custom: [{ type: "Textbox", label: "Employee ID", required: true, options: [] }],
         history: [],
       },
-    ],
+    ].map(normalizeForm),
     workflows: buildWorkflows(now),
     templates: [
       {

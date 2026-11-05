@@ -12,7 +12,8 @@ const PORT = process.env.PORT || process.env.SCANNER_PORT || 3001;
 
 // Middlewares
 app.use(cors({ origin: true, credentials: true }));
-app.use(express.json());
+// Web forms carry a small logo and favicon, so allow bodies above the 100 KB default
+app.use(express.json({ limit: '2mb' }));
 
 // Mount Modular API Routers
 app.use('/api/cookies', cookieRouter);
