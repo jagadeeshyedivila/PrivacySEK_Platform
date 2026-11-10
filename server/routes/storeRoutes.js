@@ -5,8 +5,9 @@ import { createInitialRopaData } from '../../src/modules/ropa/ropaData.js';
 import { createDefaultConsentState } from '../../src/modules/consent/consentData.js';
 import { createInitialDiscoveryData } from '../../src/modules/discovery/discoveryData.js';
 import { createInitialRightsData } from '../../src/modules/rights/rightsData.js';
+import { createInitialDpiaData } from '../../src/modules/dpia/dpiaData.js';
 
-// Editable module records (ROPA, Consent, Data Discovery, Rights Requests), one document per record.
+// Editable module records (ROPA, Consent, Data Discovery, Rights Requests, DPIA), one document per record.
 //
 //   GET    /api/store/:module                 everything the module persists (seeds on first use)
 //   GET    /api/store/:module/:coll           one collection, in display order
@@ -23,6 +24,7 @@ const SEEDS = {
   consent: createDefaultConsentState,
   discovery: createInitialDiscoveryData,
   rights: createInitialRightsData,
+  dpia: createInitialDpiaData,
 };
 
 const STATE_COLLECTION = 'module_state';
