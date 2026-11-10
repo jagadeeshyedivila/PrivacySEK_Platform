@@ -31,7 +31,7 @@ export function createTasksRenderer(ctx) {
             <li class="${t.status === "Done" ? "is-done" : ""}">
               <input type="checkbox" class="dp-task-check" data-change-act="dp-task-done" data-id="${safe(t.id)}" ${t.status === "Done" ? "checked" : ""} ${canChange(t) ? "" : "disabled"} aria-label="Mark “${safe(t.title)}” as done">
               <span class="dp-task-b"><b>${safe(t.title)}</b>
-                <small><span class="dp-tag">${safe(t.kind)}</span>${t.assessment ? `<button class="dp-link" data-act="dp-open" data-arg="${safe(t.assessment)}">${safe(name(t.assessment))}</button>` : ""}</small></span>
+                <small><span class="dp-tag">${safe(t.kind)}</span>${t.ref ? `<span class="dp-code">${safe(t.ref)}</span>` : ""}${t.assessment ? `<button class="dp-link" data-act="dp-open" data-arg="${safe(t.assessment)}">${safe(name(t.assessment))}</button>` : ""}</small></span>
               <span class="dp-task-o">${safe(t.owner)}</span>
               <span class="dp-due ${late(t) ? "is-late" : ""}">${t.status === "Done" ? "Done" : t.due ? (late(t) ? "Overdue · " : "") + safe(formatDate(t.due)) : "No due date"}</span>
               <select data-act="dp-task-status" data-id="${safe(t.id)}" ${canChange(t) ? "" : "disabled"} aria-label="Task status">

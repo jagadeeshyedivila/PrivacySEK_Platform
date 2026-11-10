@@ -4,15 +4,22 @@ import {
   loadDpiaState, saveDpiaState, resetDpiaState, loadCurrentUser, saveCurrentUser,
 } from "./dpiaData.js";
 import { DPIA_TABS, TAB_ACCESS, createDpiaUiState } from "./dpiaConfig.js";
-import { STATUSES, OPEN_STATUSES, isOverdue, overallRisk, residualLevel } from "./dpiaModel.js";
+import { STATUSES, OPEN_STATUSES, isOverdue, overallRag, evidenceExpired } from "./dpiaModel.js";
+import { suggestFor } from "./dpiaPrefill.js";
 import { createDashboardRenderer } from "./screens/DpiaDashboard.js";
 import { createAssessmentsRenderer } from "./screens/DpiaAssessments.js";
 import { createTemplatesRenderer } from "./screens/DpiaTemplates.js";
 import { createRisksRenderer } from "./screens/DpiaRisks.js";
 import { createTasksRenderer } from "./screens/DpiaTasks.js";
 import { createGuideRenderer } from "./screens/DpiaGuide.js";
+import { createEvidenceRenderer } from "./screens/DpiaEvidence.js";
+import { createFrameworksRenderer } from "./screens/DpiaFrameworks.js";
 import { registerDpiaActions as registerActions } from "./actions/dpiaActions.js";
 import { getRopaData } from "../ropa/ropaData.js";
+import { getDiscoveryData } from "../discovery/discoveryData.js";
+import { loadConsentState } from "../consent/consentData.js";
+import { loadRightsState } from "../rights/rightsData.js";
+import sampleData from "../../data/sampleData.js";
 import "./dpia.css";
 
 const ui = createDpiaUiState();
@@ -37,9 +44,10 @@ const canFill = a => role().edit && (role().fillAny || a.who === currentUser.nam
 const canReview = a => role().review && a.status === "Under review";
 
 const STATUS_TONE = { "Not started": "n", "In progress": "info", "Under review": "risk", "Changes requested": "act", Approved: "ok" };
-const LEVEL_TONE = { Low: "ok", Medium: "risk", High: "act", Critical: "block", "—": "n" };
+const RAG_TONE = { GREEN: "ok", AMBER: "risk", RED: "block" };
 const statusPill = s => runtime.pill(STATUS_TONE[s] || "n", s);
-const levelPill = l => (l === "—" ? '<span class="dp-dim">—</span>' : runtime.pill(LEVEL_TONE[l] || "n", l));
+// RAG rating from the residual score; "—" when nothing is scored
+const ragPill = rag => (rag ? `<span class="dp-rag is-${rag.toLowerCase()}">${rag}</span>` : '<span class="dp-dim">—</span>');
 
 function dueBadge(a) {
   if (!OPEN_STATUSES.includes(a.status)) return '<span class="dp-due is-closed">—</span>';
@@ -63,11 +71,26 @@ function logActivity(a, text) {
   a.updated = at;
 }
 
-// Processing activities from the Data Map, for linking an assessment to one
+// Processing activities and assets from the Data Map, for linking assessments, controls and risks
 function ropaActivities() {
-  try { return (getRopaData().act || []).map(x => ({ id: x.id, name: x.name, dpia: x.dpia, dpiaState: x.dpiaState, bu: x.bu })); }
+  try { return (getRopaData().act || []).map(x => ({ id: x.id, name: x.name, dpia: x.dpia, dpiaState: x.dpiaState, bu: x.bu, cat: x.cat || [], dpc: x.dpc || [], xb: x.xb, ai: x.ai, apps: x.apps || [] })); }
   catch (e) { return []; }
 }
+function ropaAssets() {
+  try { return (getRopaData().ast || []).map(x => ({ id: x.id, name: x.name, acts: x.acts || [], stype: x.stype, loc: x.loc })); }
+  catch (e) { return []; }
+}
+function ropaRecords(type) {
+  try { return getRopaData()[type] || []; } catch (e) { return []; }
+}
+
+// Records other modules hold, for suggested answers. Each source is optional.
+function sources() {
+  const get = fn => { try { return fn(); } catch (e) { return {}; } };
+  return { ropa: get(getRopaData), discovery: get(getDiscoveryData), consent: get(loadConsentState), rights: get(loadRightsState), sample: sampleData };
+}
+const suggestion = (q, a) => suggestFor(q, a, sources());
+const evidenceById = id => (state().evidence || []).find(e => e.id === id);
 
 function getContext() {
   return {
@@ -77,8 +100,8 @@ function getContext() {
     runtime, ui,
     PEOPLE, DEMO_ACCOUNTS, ROLES, REGULATIONS, STATUSES, OPEN_STATUSES, DPIA_TABS, TAB_ACCESS,
     teamOf, safe, formatDate, formatDateTime, role, canEdit, canFill, canReview, dis, daysLeft,
-    statusPill, levelPill, dueBadge, isOverdue, overallRisk, residualLevel,
-    persist, logActivity, ropaActivities,
+    statusPill, ragPill, dueBadge, isOverdue, overallRag, evidenceExpired,
+    persist, logActivity, ropaActivities, ropaAssets, ropaRecords, sources, suggestion, evidenceById, sampleData,
     switchUser: u => { currentUser = u; saveCurrentUser(u); },
     resetState: () => resetDpiaState(),
   };
@@ -94,12 +117,15 @@ export function createDpiaView(moduleRuntime) {
     risks: createRisksRenderer(ctx),
     tasks: createTasksRenderer(ctx),
     guide: createGuideRenderer(ctx),
+    evidence: createEvidenceRenderer(ctx),
+    frameworks: createFrameworksRenderer(ctx),
   };
 
   return function renderDpia() {
     const allowed = TAB_ACCESS[currentUser.role] || [];
     const tab = ui.tab || "dashboard";
     const label = (DPIA_TABS.find(([id]) => id === tab) || [])[1] || "DPIA";
+    const expired = (state().evidence || []).filter(e => evidenceExpired(e)).length;
     const open = state().assessments.filter(a => OPEN_STATUSES.includes(a.status)).length;
     const review = state().assessments.filter(a => a.status === "Under review").length;
 
@@ -107,7 +133,7 @@ export function createDpiaView(moduleRuntime) {
       <nav class="dp-top-nav" aria-label="DPIA sections">
         ${DPIA_TABS.map(([id, l]) => {
           const ok = allowed.includes(id);
-          const count = id === "assessments" ? open : null;
+          const count = id === "assessments" ? open : id === "evidence" && expired ? expired : null;
           return `
             <button class="dp-top-nav-btn ${tab === id ? "active" : ""} ${ok ? "" : "restricted"}" data-act="dp-tab" data-arg="${id}"
               aria-current="${tab === id ? "page" : "false"}" title="${safe(l)}${ok ? "" : ` (restricted for ${safe(currentUser.role)})`}">
@@ -156,7 +182,7 @@ export function createDpiaView(moduleRuntime) {
 
     return `
       <div class="page dp-module">
-        ${runtime.head("Prove", "DPIA", "Data protection impact assessments: templates, questionnaires, risks and mitigations, review and sign-off, linked to your Data Map.")}
+        ${runtime.head("Prove", "DPIA", "Data protection impact assessments: screening, the integrated DPDPA + ISO checklist, 5×5 risk scoring, evidence, framework coverage, review and sign-off, linked to your Data Map.")}
         ${nav}${meta}${banner}
         <div class="dp-body">${body}</div>
         <span hidden data-dp-render="${++renderCount}"></span>

@@ -1,5 +1,6 @@
 // Templates: the library, the builder (which edits a draft copy) and an interactive preview.
-import { QUESTION_TYPES, OPTION_TYPES, questionCount, templateProblems, numbered } from "../dpiaModel.js";
+import { QUESTION_TYPES, OPTION_TYPES, COMPLIANCE, questionCount, templateProblems, numbered } from "../dpiaModel.js";
+import { FRAMEWORKS, FRAMEWORK_SHORT, DOMAINS } from "../dpiaConfig.js";
 import { questionHtml } from "./DpiaAssessments.js";
 
 export function createTemplatesRenderer(ctx) {
@@ -8,12 +9,15 @@ export function createTemplatesRenderer(ctx) {
   const isDirty = () => Boolean(ui.tplDraft && JSON.stringify(ui.tplDraft) !== ui.tplSaved);
   const inUse = id => ctx.state.assessments.filter(a => a.tpl === id && ctx.OPEN_STATUSES.includes(a.status)).length;
   const build = () => ctx.role().build;
+  // A template uses the checklist bank when any question carries a workbook code
+  const bankCount = t => t.sections.reduce((n, s) => n + s.qs.filter(q => /^DPIA-\d{3}$/.test(q.code || "")).length, 0);
+  const tplFrameworks = t => FRAMEWORKS.filter(f => t.sections.some(s => s.qs.some(q => (q.frameworks || []).includes(f))));
 
   /* ---------------- library ---------------- */
   function list() {
     const all = ctx.state.templates;
     const q = ui.tSearch.trim().toLowerCase();
-    const rows = all.filter(t => (!q || [t.title, t.desc, t.regulation].some(v => String(v).toLowerCase().includes(q))) && (ui.tStatus === "all" || t.status === ui.tStatus));
+    const rows = all.filter(t => (!q || [t.title, t.desc, t.regulation].some(v => String(v).toLowerCase().includes(q))) && (ui.tStatus === "all" || t.status === ui.tStatus) && (!ui.tBank || bankCount(t)));
     const n = s => all.filter(t => s === "all" || t.status === s).length;
     return `
       <div class="dp-screen-head">
@@ -26,10 +30,11 @@ export function createTemplatesRenderer(ctx) {
         <div class="dp-seg" role="group" aria-label="Filter by status">
           ${[["all", "All"], ["Published", "Published"], ["Draft", "Draft"]].map(([v, l]) => `<button class="${ui.tStatus === v ? "active" : ""}" data-act="dp-t-status" data-arg="${v}" aria-pressed="${ui.tStatus === v}">${l} <b>${n(v)}</b></button>`).join("")}
         </div>
+        <label class="dp-check"><input type="checkbox" data-change-act="dp-t-bank" ${ui.tBank ? "checked" : ""}> Uses the checklist bank</label>
       </div>
       ${rows.length ? `<div class="dp-tpl-grid">${rows.map(t => `
         <article class="card dp-tpl">
-          <div class="dp-tpl-top">${statusPill(t.status)}<span class="dp-reg">${safe(t.regulation)}</span></div>
+          <div class="dp-tpl-top">${statusPill(t.status)}<span class="dp-reg">${safe(t.regulation)}</span>${bankCount(t) ? `<span class="dp-bank" title="${bankCount(t)} questions from the integrated checklist">Checklist bank</span>` : ""}</div>
           <h3>${safe(t.title)}</h3>
           <p>${safe(t.desc)}</p>
           <dl class="dp-tpl-facts">
@@ -38,6 +43,7 @@ export function createTemplatesRenderer(ctx) {
             <div><dt>Version</dt><dd>v${t.version}</dd></div>
             <div><dt>In use</dt><dd>${inUse(t.id)}</dd></div>
           </dl>
+          ${tplFrameworks(t).length ? `<span class="dp-fw-tags">${tplFrameworks(t).map(f => `<span class="dp-fw" title="Mapped to ${safe(f)}">${safe(FRAMEWORK_SHORT[f])}</span>`).join("")}</span>` : ""}
           <small class="dp-muted">Updated ${safe(formatDate(t.updated))} by ${safe(t.updatedBy)}</small>
           <div class="dp-tpl-actions">
             <button class="btn sm" data-act="dp-t-preview" data-arg="${safe(t.id)}">Preview</button>
@@ -91,6 +97,15 @@ export function createTemplatesRenderer(ctx) {
           <input class="dp-bq-help" value="${safe(q.help || "")}" placeholder="Helper text (optional)" data-input-act="dp-t-q" data-si="${si}" data-qi="${qi}" data-key="help" aria-label="Helper text" autocomplete="off">
           <label class="dp-check"><input type="checkbox" data-change-act="dp-t-qflag" data-si="${si}" data-qi="${qi}" data-key="req" ${q.req ? "checked" : ""}> Required</label>
           ${q.type === "Yes/No" ? `<label class="dp-check" title="A Yes answer suggests a risk to record"><input type="checkbox" data-change-act="dp-t-qflag" data-si="${si}" data-qi="${qi}" data-key="flag" ${q.flag ? "checked" : ""}> Yes flags a risk</label>` : ""}
+          ${q.type === COMPLIANCE ? `
+            <label class="dp-check" title="A No or Partial answer suggests a risk to record"><input type="checkbox" data-change-act="dp-t-qflag" data-si="${si}" data-qi="${qi}" data-key="flag" ${q.flag ? "checked" : ""}> No/Partial flags a risk</label>
+            <label class="dp-check" title="Shows the evidence, owners and 5×5 scoring panel under the question"><input type="checkbox" data-change-act="dp-t-qflag" data-si="${si}" data-qi="${qi}" data-key="scored" ${q.scored !== false ? "checked" : ""}> Scored control</label>
+            <label class="dp-check"><input type="checkbox" data-change-act="dp-t-qtext" data-si="${si}" data-qi="${qi}" ${q.answerFormat === "text+response" ? "checked" : ""}> Also ask for a text answer</label>` : ""}
+        </div>
+        <div class="dp-bq-map">
+          <input class="dp-bq-code" value="${safe(q.code || "")}" placeholder="Code, e.g. DPIA-077" data-input-act="dp-t-qcode" data-si="${si}" data-qi="${qi}" aria-label="Question code" autocomplete="off">
+          <select data-act="dp-t-qsel" data-si="${si}" data-qi="${qi}" data-key="domain" aria-label="Domain"><option value="">No domain</option>${DOMAINS.map(d => `<option value="${d.code}" ${q.domain === d.code ? "selected" : ""}>${d.code} · ${safe(d.name)}</option>`).join("")}</select>
+          <span class="dp-bq-fw" role="group" aria-label="Mapped frameworks">${FRAMEWORKS.map(f => `<label class="dp-check"><input type="checkbox" data-change-act="dp-t-qfw" data-si="${si}" data-qi="${qi}" data-fw="${safe(f)}" ${(q.frameworks || []).includes(f) ? "checked" : ""}> ${safe(FRAMEWORK_SHORT[f])}</label>`).join("")}</span>
         </div>
         ${OPTION_TYPES.includes(q.type) ? `
           <div class="dp-bq-choices">

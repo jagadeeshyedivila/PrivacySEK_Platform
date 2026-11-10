@@ -1,5 +1,15 @@
 // Live "Compliance check" side panel shown next to the wizard form
 import { plural } from "./format.js";
+import { loadDpiaState } from "../../dpia/dpiaData.js";
+import { overallRag } from "../../dpia/dpiaModel.js";
+
+// DPIA assessments that cover this activity, newest first
+function dpiaLinks(id) {
+  if (!id) return [];
+  try {
+    return (loadDpiaState().assessments || []).filter(a => a.activityId === id || (a.activityIds || []).includes(id));
+  } catch (e) { return []; }
+}
 
 const SEV_ICON = { error: "✕", warning: "!", suggest: "→", info: "i" };
 
@@ -45,6 +55,13 @@ export function renderDock(context, wiz, ev, extra) {
   }
   if (type === "act") {
     body += '<div class="rp-dock-sec rp-dpia ' + (ev.dpiaRecommended ? "on" : "") + '"><b>' + (ev.dpiaRecommended ? "DPIA recommended" : "DPIA not required") + '</b><p class="dim rp-small">' + esc(ev.dpiaReason) + '</p></div>';
+    const links = dpiaLinks(wiz.id);
+    if (links.length) {
+      body += '<div class="rp-dock-sec rp-small"><span class="sec-t" style="margin:0">DPIA</span>' + links.slice(0, 3).map(x => {
+        const rag = overallRag(x);
+        return '<p><button class="rp-link" data-go="assess">' + esc(x.id) + '</button> · ' + esc(x.status) + (rag ? ' · RAG ' + esc(rag) : "") + '</p>';
+      }).join("") + '</div>';
+    }
   }
   if (extra.fieldErrors) {
     body += '<div class="rp-dock-sec rp-small"><span class="rp-req">' + plural(extra.fieldErrors, "field") + '</span> to fix on the steps you\'ve checked.</div>';
