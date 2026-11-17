@@ -166,7 +166,8 @@ export function createDefaultConsentState() {
   }));
 
   const createJur = (name, code, desc, regs, rg, regions, created, updated) => ({
-    id: Math.random().toString(16).slice(2, 10) + '-' + code.slice(0, 4),
+    // Stable, so the server can tell a deleted demo jurisdiction from one it has already
+    id: 'jur-' + code,
     name,
     code,
     description: desc,

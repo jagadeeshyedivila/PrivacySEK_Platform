@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "server": "node server/index.js",
+    "seed": "node server/seed/cli.js",
+    "db:copy": "node scripts/db-copy.js",
     "test": "playwright test",
     "build": "vite build",
     "preview": "vite preview"

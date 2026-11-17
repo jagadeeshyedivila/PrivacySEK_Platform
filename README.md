@@ -14,9 +14,10 @@ another database.
 npm install
 ```
 
-Start the backend and frontend in separate terminals. The backend expects a database that
-already holds the platform data. ROPA, Consent and Data Discovery records are created,
-edited and deleted through `/api/store` and saved in MongoDB, one document per record:
+Start the backend and frontend in separate terminals. On first start against a new
+database the backend seeds the demo data (see "Databases and seeding" below). ROPA,
+Consent, Data Discovery, Rights and DPIA records are created, edited and deleted through
+`/api/store` and saved in MongoDB, one document per record:
 
 ```bash
 npm run server     # backend API at http://localhost:3001
@@ -26,6 +27,48 @@ npm run server     # backend API at http://localhost:3001
 npm run dev        # open http://localhost:5173
 ```
 
+
+### Databases and seeding
+
+`MONGODB_URI` and `MONGODB_DB_NAME` alone decide which database the app uses. To switch
+databases (local test DB, a PrivacySEK cluster), change those two values. You can start
+the new database fresh or bring your existing data along:
+
+**Fresh database with demo data**
+
+```bash
+npm run seed -- --dry-run   # show which demo records are missing
+npm run seed                # insert them
+npm run seed -- --reset     # replace all demo data with a fresh copy of the seed
+```
+
+All data in the app is sample data, so seeding keeps every demo record present. The server
+does this on each start (a serverless instance on its first request), and `npm run seed`
+does it on demand. Records are matched by their key fields and only missing ones are
+inserted:
+
+- a new, empty database gets the full demo data set;
+- a demo record a user deleted comes back on the next start;
+- demo records still present keep their edits, and records users added are kept.
+
+Seeding only adds. After changing the seed itself (renaming or removing a demo record),
+run `npm run seed -- --reset` to drop the old version. Scans and schedules are not affected.
+Set `SEED_DEMO_DATA=false` to stop the server seeding on start.
+
+**Copy an existing database to another one**
+
+```bash
+# PowerShell; in bash use export VAR=value
+$env:TARGET_MONGODB_URI = "mongodb+srv://<user>:<password>@<cluster-host>/"
+$env:TARGET_DB_NAME     = "privacysek"
+npm run db:copy -- --dry-run   # compare source and target counts
+npm run db:copy                # copy documents, _id values and indexes
+```
+
+The source is `MONGODB_URI` / `MONGODB_DB_NAME` from `.env` unless `SOURCE_MONGODB_URI` /
+`SOURCE_DB_NAME` are set. The copy refuses to write if a target collection already has data;
+add `--drop` to replace those collections, or `--only a,b` to copy just some. Afterwards,
+point `MONGODB_URI` / `MONGODB_DB_NAME` at the target.
 
 ### Deployment environment variables
 
