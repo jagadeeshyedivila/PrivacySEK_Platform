@@ -70,7 +70,8 @@ guard:{
   {n:"Marketing exports need active marketing consent", when:"Purpose = Marketing · Destination = messaging tools", then:"block", scope:"Per record", hits:"1,482 / 7d", on:true},
   {n:"Mask identifiers for analytics", when:"Destination = BigQuery, Snowflake · Data = Aadhaar, PAN, mobile", then:"mask", scope:"Per field", hits:"18,904 / 7d", on:true},
   {n:"Partner sharing needs DPO approval", when:"Destination = external partner · Purpose differs from collection", then:"approve", scope:"Per request", hits:"12 / 7d", on:true},
-  {n:"Block children's data in ad audiences", when:"Data principal age < 18 · Destination = ad platforms", then:"block", scope:"Per record", hits:"38 / 7d", on:true},
+  {n:"Children: no tracking, profiling or targeted ads (s.9(3))", when:"Data principal under 18 · Purpose = marketing, profiling, targeted ads, behavioural tracking", then:"block", scope:"Per record", hits:"412 / 7d", on:true, builtIn:true},
+  {n:"Withdrawn consent: block further use (s.6(6))", when:"Consent withdrawn for the purpose · any destination", then:"block", scope:"Per record", hits:"137 / 7d", on:true, builtIn:true},
   {n:"Large off-hours export alert", when:"Records > 50,000 · Time 22:00–06:00", then:"approve", scope:"Per request", hits:"2 / 7d", on:true},
   {n:"AI tools: no SPI in prompts", when:"Destination = AI assistants · Data = SPI", then:"mask", scope:"Per field", hits:"312 / 7d", on:true},
   {n:"Cross-border to restricted countries", when:"Destination country on restricted list", then:"block", scope:"Per request", hits:"0 / 7d", on:true}

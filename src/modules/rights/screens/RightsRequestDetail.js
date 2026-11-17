@@ -1,4 +1,7 @@
 // One request: identity and context, the status stepper, statutory clock and the work tabs.
+import { methodById, simulationBanner } from "../../../platform/verifySim.js";
+import { RELATION_LABELS } from "../rightsData.js";
+
 export function createRequestDetailRenderer(ctx) {
   const { ui, safe, STAGES, DETAIL_TABS, formatDate, formatDateTime, isClosed, dueIn, statusPill, dueBadge, dis } = ctx;
 
@@ -52,7 +55,7 @@ export function createRequestDetailRenderer(ctx) {
       </div>
       <div class="rr-compose">
         ${isPublic ? `
-          <div class="rr-field"><label for="rr-mail-to">To</label><input id="rr-mail-to" value="${safe(r.email)}"></div>
+          <div class="rr-field"><label for="rr-mail-to">To</label><input id="rr-mail-to" value="${safe((r.requester && r.requester.email) || r.email)}"></div>
         ` : '<p class="rr-hint">Private notes are visible only to your privacy team.</p>'}
         <div class="rr-field">
           <label for="rr-mail-tpl">Template</label>
@@ -122,6 +125,47 @@ export function createRequestDetailRenderer(ctx) {
     `;
   }
 
+  // Request filed by a parent, lawful guardian or nominee: who they are, whether the
+  // relationship is on record in Consent, and the (simulated) verification of the requester
+  function requesterPanel(r) {
+    const q = r.requester;
+    if (!q || q.relation === "self") return "";
+    const rel = q.relationshipId ? (ctx.relationships() || []).find(x => x.id === q.relationshipId && x.status === "active") : null;
+    const v = q.verification || {};
+    const passed = v.result === "passed";
+    const nominee = q.relation === "nominee";
+    const method = v.method ? methodById(v.method) : null;
+    const pill = ctx.runtime.pill;
+    return `
+      <section class="card rr-panel rr-guardian">
+        <div class="card-h"><h3>${nominee ? "Nominee request · s.14" : "Filed by a guardian · s.2(j)"}</h3>
+          <div class="r">${pill(passed ? "ok" : "risk", passed ? "Requester verified" : "Verification needed")}</div></div>
+        <div class="card-b">
+          ${simulationBanner(safe)}
+          <dl class="rr-info-grid">
+            ${info("Requester", safe(q.name || "—"))}
+            ${info("Requester email", safe(q.email || "—"))}
+            ${info("Acting as", safe(RELATION_LABELS[q.relation] || q.relation))}
+            ${info("For", `${safe(r.first)} ${safe(r.last)}${r.principalId ? ` <span class="rr-mono">${safe(r.principalId)}</span>` : ""}`)}
+            ${nominee
+              ? info("Evidence", `${safe(String(q.evidence || "—").replace("_", " "))} · nomination ${safe(q.nominationId || "—")}`)
+              : info("Relationship on record", rel ? `<span class="rr-verified">${safe(rel.id)}</span> verified in Consent (${safe(rel.evidenceRef)})` : '<span class="rr-risk is-high">Not found</span> in Consent')}
+            ${info("Verification", passed ? `${safe(method ? method.label : "Verified")} ${method ? `<small class="rr-hint">${safe(method.ref)}</small>` : ""}` : "Not yet verified")}
+          </dl>
+          ${!passed && !isClosed(r) && ctx.canEdit() ? `
+            <div class="rr-guardian-acts">
+              ${nominee
+                ? `<button class="btn sm t" data-act="rr-gd-verify" data-arg="${safe(r.id)}|nominee">Confirm nominee evidence (simulated)</button>`
+                : rel
+                  ? `<button class="btn sm t" data-act="rr-gd-verify" data-arg="${safe(r.id)}|reuse">Reuse guardian verification (Rule 10(1)(a))</button>`
+                  : `<button class="btn sm t" data-act="rr-gd-verify" data-arg="${safe(r.id)}|token">Verify guardian with a virtual token (simulated)</button>`}
+            </div>
+            <p class="rr-hint">The request cannot move to In Progress until the ${nominee ? "nominee" : "guardian"} is verified. An OTP alone only confirms contact.</p>` : ""}
+        </div>
+      </section>
+    `;
+  }
+
   function render() {
     const r = ctx.state.requests.find(x => x.id === ui.selectedRequestId);
     if (!r) {
@@ -170,9 +214,10 @@ export function createRequestDetailRenderer(ctx) {
         </section>
 
         <section class="card rr-clock ${closed ? "" : d < 0 ? "is-late" : d <= 7 ? "is-soon" : ""}">
-          <span>Statutory clock</span>
+          <span>${r.type === "Grievance" ? "Statutory clock" : "Internal SLA"}</span>
           <strong>${closed ? (r.status === "Complete" ? "Closed" : "Rejected") : d < 0 ? `${-d} days late` : `${d} days left`}</strong>
-          <small>Deadline ${safe(formatDate(r.deadline))} · ${r.type === "Grievance" ? "Rule 14 · 90 days" : `${form?.deadlineDays || 30}-day policy SLA`}</small>
+          <small>Deadline ${safe(formatDate(r.deadline))} · ${r.type === "Grievance" ? "Rule 14(3) · statutory 90 days" : `${form?.deadlineDays || 30}-day internal SLA (no DPDP deadline)`}</small>
+          <small class="rr-clock-note">DPDP obligations apply from 13 May 2027</small>
           ${r.status === "Complete" && r.completedAt ? `<small>Completed ${safe(formatDate(r.completedAt))}${new Date(r.completedAt) > new Date(r.deadline) ? " · after the deadline" : " · on time"}</small>` : ""}
         </section>
       </div>
@@ -181,7 +226,9 @@ export function createRequestDetailRenderer(ctx) {
         <div class="card-h"><h3>Request details</h3></div>
         <dl class="card-b rr-info-grid">
           ${info("Data principal", `${safe(r.first)} ${safe(r.last)}`)}
-          ${info("Email", `${safe(r.email)} ${r.verified ? '<span class="rr-verified">Verified</span>' : `<button class="rr-link" data-act="rr-resend-verify" data-arg="${safe(r.id)}" ${dis()}>Resend verification</button>`}`)}
+          ${!r.email && r.requester
+            ? info("Email", '<span class="rr-hint">None on record · contact through the requester below</span>')
+            : info(r.requester?.relation === "nominee" ? "Email (data principal)" : "Email", `${safe(r.email)} ${r.requester ? "" : r.verified ? '<span class="rr-verified">Verified</span>' : `<button class="rr-link" data-act="rr-resend-verify" data-arg="${safe(r.id)}" ${dis()}>Resend verification</button>`}`)}
           ${info("Mobile", safe(r.mobile))}
           ${info("Subject type", safe(r.subject))}
           ${info("Location", `${safe(r.city)}, ${safe(r.state)}`)}
@@ -199,6 +246,8 @@ export function createRequestDetailRenderer(ctx) {
           <div class="rr-info is-wide"><dt>Request details</dt><dd>${safe(r.details)}</dd></div>
         </dl>
       </section>
+
+      ${requesterPanel(r)}
 
       <section class="card rr-panel">
         <div class="rr-tabs" role="tablist">

@@ -29,7 +29,13 @@ export const STORE_SCHEMAS = {
       preferences: { name: "consent_mgmt_preferences", key: "id" },
       jurisdictions: { name: "consent_mgmt_jurisdictions", key: "id" },
       workflows: { name: "consent_mgmt_workflows", key: "id" },
-      senders: { name: "consent_mgmt_senders", key: "email" }
+      senders: { name: "consent_mgmt_senders", key: "email" },
+      // Children's data (DPDP s.9, Rules 10–11): guardian verification requests and the
+      // guardian ↔ dependent links created when one is verified
+      vpcRequests: { name: "consent_mgmt_vpc_requests", key: "id" },
+      relationships: { name: "consent_mgmt_relationships", key: "id" },
+      // Downstream stop/delete instructions sent when consent is withdrawn (s.6(6))
+      propagations: { name: "consent_mgmt_propagations", key: "id" }
     },
     singles: ["builder", "email"]
   },

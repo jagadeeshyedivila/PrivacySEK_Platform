@@ -6,6 +6,7 @@ import {
 } from "../forms/formModel.js";
 import { createFormState } from "../forms/formState.js";
 import { newCaptcha } from "../screens/RightsForms.js";
+import { ON_BEHALF } from "../rightsData.js";
 
 const MAX_UPLOAD = 1024 * 1024;
 const IMAGE_BOX = { logo: [360, 96], favicon: [64, 64] };
@@ -713,6 +714,14 @@ export function registerFormActions(ctx, ACT, h) {
       language: lang, channel: "Rights portal", answers, attachment: file ? file.name : "",
       activity: `Request submitted through the web form “${f.name}” (preview).${file ? ` Attachment: ${file.name} (not stored in the demo).` : ""}`,
     });
+    // Filed for a child, a person under guardianship or as a nominee: verify the requester first
+    const relation = (ON_BEHALF.find(o => o[0] === values.onBehalf) || [, "self"])[1];
+    if (relation !== "self") {
+      request.requester = { relation, name: `${request.first} ${request.last}`.trim(), email: request.email, principalId: null, dependentId: null, relationshipId: null, verification: { method: null, simulated: true, result: "pending" } };
+      request.subject = relation === "nominee" ? "Customer (deceased)" : relation === "pwd_guardian" ? "Person with disability (via guardian)" : "Child (via guardian)";
+      if (relation === "nominee") request.requester.evidence = "to be provided";
+      request.activity.push({ at: new Date().toISOString(), by: "System", text: `Filed as ${relation === "parent" ? "a parent for a child" : relation === "nominee" ? "a nominee" : "a lawful guardian"}. Requester verification required before work starts.` });
+    }
     ctx.state.requests.unshift(request);
     runtime.ledgerAdd("Rights request received", `${request.id} · ${request.type}`);
     persist();

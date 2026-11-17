@@ -305,7 +305,12 @@ export const DPIA_CHECKLIST = {
     "ISO 20000",
     "ISO 31000"
    ],
-   "answerFormat": "response"
+   "answerFormat": "response",
+   "prefill": {
+    "module": "ropa",
+    "fields": "act.regs, act.regApp, act.secGap",
+    "hint": "Regulations picked on the activity and its regulatory self-assessment."
+   }
   },
   {
    "id": "DPIA-007",

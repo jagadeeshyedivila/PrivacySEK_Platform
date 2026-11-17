@@ -1,3 +1,5 @@
+import { childModeOf } from "../cookieData.js";
+
 export function createBannerSectionsRenderer(context) {
   const {
     state, runtime, ui, TOP_TABS, CONFIG_NAV_SECTIONS, REGIONS,
@@ -428,8 +430,37 @@ function renderLayoutSectionForm() {
 
 /* 3.5 PURPOSES SECTION */
 
+function renderChildModeCard() {
+  const cm = childModeOf(state.draft);
+  const sw = (on, act, label) => `<button class="cc-switch" type="button" role="switch" aria-checked="${Boolean(on)}" aria-label="${safe(label)}" data-act="${act}"></button>`;
+  const locked = state.categories.filter(c => !c.required);
+  return `
+    <div class="cc-form-group cc-child-mode">
+      <div class="cc-form-group-title">
+        <span>Child-directed mode <span class="cc-badge info">DPDP s.9(3)</span></span>
+        ${sw(cm.enabled, "cc-child-toggle", "Enable child-directed mode")}
+      </div>
+      <p class="dim" style="font-size:12px;margin:0 0 10px;">
+        For visitors under 18 in India, only Necessary cookies are set. Tracking, behavioural monitoring and targeted advertising are not allowed for children, so the categories below are locked off and “Accept All” stores Necessary only.
+      </p>
+      <div class="cc-toggle-row">
+        <div class="cc-toggle-info"><strong>Ask age on first visit</strong><small>Show an age check before the banner on child-directed sites.</small></div>
+        ${sw(cm.askAge, "cc-child-askage", "Ask age on first visit")}
+      </div>
+      <div class="cc-toggle-row">
+        <div class="cc-toggle-info"><strong>Treat unknown age as a child</strong><small>For child-directed sites such as ${safe(cm.childDirectedSites.join(", "))}.</small></div>
+        ${sw(cm.unknownAsChild, "cc-child-unknown", "Treat unknown age as a child")}
+      </div>
+      <div class="cc-child-locks">
+        ${locked.map(c => `<span class="cc-child-lock" title="Locked off for under-18 visitors">🔒 ${safe(c.name)}</span>`).join("")}
+      </div>
+    </div>
+  `;
+}
+
 function renderPurposesSectionForm() {
   return `
+    ${renderChildModeCard()}
     <div class="cc-form-group">
       <div class="cc-form-group-title">
         <span>Configured Cookie Categories</span>
@@ -447,7 +478,6 @@ function renderPurposesSectionForm() {
               <div style="display:flex;align-items:center;gap:8px;">
                 <strong>${safe(cat.name)}</strong>
                 ${cat.required ? `<span class="cc-badge ok">Always Active</span>` : `<span class="cc-badge info">${cat.defaultState ? "Default: Opt-In" : "Default: Opt-Out"}</span>`}
-                <span class="cc-badge" style="background:var(--surface);">${cookieCount} cookies</span>
               </div>
               <small style="margin-top:4px;">${safe(cat.description)}</small>
             </div>
@@ -560,10 +590,10 @@ function renderVendorsSectionForm() {
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
       <div class="cc-config-view-toggle">
         <button class="cc-config-view-toggle-btn ${sub === "iab" ? "active" : ""}" data-act="cc-set-vendor-sub" data-arg="iab">
-          IAB TCF v2.2 Vendors (${(vendors.iabList || []).length})
+          IAB Vendors (${(vendors.iabList || []).length})
         </button>
         <button class="cc-config-view-toggle-btn ${sub === "google" ? "active" : ""}" data-act="cc-set-vendor-sub" data-arg="google">
-          Google CMP List (${(vendors.googleList || []).length})
+          Google vendors (${(vendors.googleList || []).length})
         </button>
       </div>
 

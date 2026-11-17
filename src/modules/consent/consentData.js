@@ -16,9 +16,48 @@ export const LEGAL_BASIS_OPTIONS = [
   'Consent-Opt In',
   'Consent-Opt Out',
   'Legitimate Interest - Objectable',
+  'Legitimate Use - DPDP s.7',
   'Legal Obligation',
   'Contract'
 ];
+
+// DPDP has consent and the legitimate uses of s.7 only: no "legitimate interest" and no
+// opt-out consent (s.6(1) needs a clear affirmative action). Other laws do not have s.7.
+export function legalBasisOptionsFor(regulations = []) {
+  const dpdp = regulations.includes('DPDPA');
+  return LEGAL_BASIS_OPTIONS.filter(o => dpdp
+    ? !/^Legitimate Interest|Opt Out/.test(o)
+    : !/^Legitimate Use/.test(o));
+}
+
+// Whether a purpose may be offered for a child's data (DPDP s.9). "exemption": only when the
+// processing activity records a Fourth Schedule exemption (Rule 12).
+export const CHILD_RULES = {
+  yes: 'Yes, with verified guardian consent',
+  no: 'No, never for children',
+  exemption: 'Only for a Fourth Schedule exempt class or purpose'
+};
+// An exemption lifts s.9(1) (guardian consent) and s.9(3) (tracking, ads) only. The duty not to
+// harm a child's well-being (s.9(2)) always applies.
+export const CHILD_EXEMPTION_NOTE = 'A Fourth Schedule exemption lifts only s.9(1) and s.9(3). The well-being duty in s.9(2) still applies.';
+
+// Downstream targets told to stop when a consent is withdrawn (s.6(6)). Systems come from
+// the active consent workflows; processors from Vendor Risk.
+export const PROPAGATION_TARGETS = [
+  { system: 'Salesforce CRM', type: 'system', action: 'update_flag' },
+  { system: 'MoEngage campaigns', type: 'processor', action: 'suppress' },
+  { system: 'Mailchimp', type: 'processor', action: 'suppress' },
+  { system: 'Partner NBFC (co-lending)', type: 'processor', action: 'stop_processing' }
+];
+
+// Data Map activities that rely on consent, by purpose category
+export const CONSENT_ACTIVITIES = {
+  Marketing: [{ id: 'PA-004', name: 'Diwali campaign' }, { id: 'PA-009', name: 'App analytics' }],
+  Sharing: [{ id: 'PA-001', name: 'Loan origination (co-lending share)' }],
+  Processing: [{ id: 'PA-009', name: 'App analytics' }],
+  Service: [],
+  Legal: []
+};
 
 export const REGION_TREE = {
   Africa: {
@@ -92,25 +131,141 @@ export const INTEGRATIONS = [
 ];
 
 export const DEMO_ACCOUNTS = [
-  { id: 'u1', name: 'Asha Verma', email: 'asha.verma@demo-acme.test', role: 'Super Administrator' },
-  { id: 'u2', name: 'Daniel Okafor', email: 'daniel.okafor@demo-acme.test', role: 'DPO' },
-  { id: 'u3', name: 'Priya Nair', email: 'priya.nair@demo-acme.test', role: 'Auditor' }
+  { id: 'u1', name: 'Asha Verma', email: 'asha.verma@aarohan.example', role: 'Super Administrator' },
+  { id: 'u2', name: 'Meera Iyer', email: 'meera.iyer@aarohan.example', role: 'DPO' },
+  { id: 'u3', name: 'Priya Nair', email: 'priya.nair@aarohan.example', role: 'Auditor' }
 ];
 
 export const ROLES = {
   'Super Administrator': {
-    modules: ['dashboard', 'records', 'builder', 'jurisdictions', 'workflows', 'emails', 'implementation'],
+    modules: ['dashboard', 'records', 'guardian', 'builder', 'jurisdictions', 'workflows', 'emails', 'implementation'],
     edit: true
   },
   'DPO': {
-    modules: ['dashboard', 'records', 'builder', 'jurisdictions', 'workflows', 'emails', 'implementation'],
+    modules: ['dashboard', 'records', 'guardian', 'builder', 'jurisdictions', 'workflows', 'emails', 'implementation'],
     edit: true
   },
   'Auditor': {
-    modules: ['dashboard', 'records', 'jurisdictions'],
+    modules: ['dashboard', 'records', 'guardian', 'jurisdictions'],
     edit: false
   }
 };
+
+const METHOD_REFS = {
+  existing_kyc_record: 'Rule 10(1)(a)',
+  authority_issued_details: 'Rule 10(1)(b)',
+  virtual_token: 'Rule 10(1)(b), 10(2)',
+  guardianship_order: 'Rule 11'
+};
+
+// Guardian verification requests (Guardian & Child Consent tab) and the relationships the
+// verified ones created. All verification is simulated and flagged as such.
+function createGuardianSeed(now, day) {
+  const at = (d, h = 10) => new Date(now - d * day + h * 36e5).toISOString();
+  const LOAN = { service: 'Loan origination (minor co-applicant)', activityIds: ['PA-001'], purposes: ['Account opening', 'Loan servicing communication'], noticeVersion: 'Minor co-applicant (guardian) v1.3' };
+  const APP = { service: 'Aarohan Money Smart', activityIds: ['PA-010'], purposes: ['Money Smart lessons', 'Progress reports to guardian'], noticeVersion: 'Money Smart guardian notice v1.0' };
+  const PWD = { service: 'Loan servicing', activityIds: ['PA-001'], purposes: ['Loan servicing communication'], noticeVersion: 'Lawful guardian notice v1.0' };
+
+  // [id, child, guardian, relationship, kind, channel, method, status, requested days ago, extra]
+  const rows = [
+    ['VPC-2026-0118', 'DP-10482', 'DP-04471', 'parent', LOAN, 'Branch tablet', 'existing_kyc_record', 'verified', 13],
+    ['VPC-2026-0121', 'DP-10511', 'DP-04512', 'parent', APP, 'Web', 'existing_kyc_record', 'verified', 9],
+    ['VPC-2026-0124', 'DP-10530', 'DP-04530', 'parent', APP, 'Mobile app', 'existing_kyc_record', 'verified', 7],
+    ['VPC-2026-0127', 'DP-10575', 'DP-04575', 'parent', APP, 'Mobile app', 'virtual_token', 'verified', 5],
+    ['VPC-2026-0130', 'DP-10560', 'DP-04560', 'parent', APP, 'Web', 'virtual_token', 'verified', 40],
+    ['VPC-2026-0133', 'DP-03310', 'DP-03311', 'pwd_guardian', PWD, 'Branch tablet', 'guardianship_order', 'verified', 22,
+      { guardianshipOrder: { authority: 'District Court, Chennai', orderNo: 'GO/2024/118', issuedOn: '2024-06-02', law: 'RPwD Act 2016', validTill: null } }],
+    ['VPC-2026-0136', 'DP-10544', 'DP-04544', 'parent', APP, 'Web', 'authority_issued_details', 'in_review', 2],
+    ['VPC-2026-0139', 'DP-10602', 'DP-04588', 'parent', APP, 'Mobile app', 'authority_issued_details', 'in_review', 1],
+    // A sibling of Aarav: the guardian is already verified, so the identity can be reused
+    ['VPC-2026-0142', 'DP-10628', 'DP-04471', 'parent', LOAN, 'Branch tablet', 'existing_kyc_record', 'in_review', 1],
+    ['VPC-2026-0145', 'DP-10615', 'DP-04602', 'parent', APP, 'Web', null, 'guardian_pending', 3],
+    ['VPC-2026-0148', 'DP-10590', 'DP-04619', 'parent', APP, 'Mobile app', 'virtual_token', 'rejected', 6,
+      { reason: 'Guardian must be an adult (Rule 10). The person who identified as the parent is under 18.' }],
+    ['VPC-2026-0109', 'DP-10544', 'DP-04544', 'parent', APP, 'Web', null, 'expired', 19,
+      { reason: 'Guardian did not respond within 7 days. Processing stays blocked.' }]
+  ];
+
+  const vpcRequests = rows.map(([id, childId, guardianId, relationship, kind, channel, method, status, ago, extra = {}], i) => {
+    const requestedAt = at(ago, 9);
+    const history = [{ at: requestedAt, status: 'guardian_pending', by: 'System', note: 'Age gate: under 18. Guardian invited.' }];
+    if (method) history.push({ at: at(ago, 10), status: 'in_review', by: 'System', note: 'Verification method chosen.' });
+    const decided = status === 'verified' || status === 'rejected';
+    if (decided) history.push({ at: at(ago, 11), status, by: 'Meera Iyer', note: status === 'verified' ? 'Guardian verified. Consent active.' : extra.reason });
+    if (status === 'expired') history.push({ at: at(ago - 7, 9), status: 'expired', by: 'System', note: extra.reason });
+    const checks = method ? [{ step: 'guardian_contact_otp', result: 'passed', note: 'Confirms contact only. Not verification.' }] : [];
+    if (method && status !== 'in_review') {
+      checks.push(status === 'rejected'
+        ? { step: 'guardian_is_adult', result: 'failed', source: 'Age on record: under 18' }
+        : { step: 'guardian_is_adult', result: 'passed', source: method === 'existing_kyc_record' ? 'KYC record PA-002 · DOB on file' : method === 'virtual_token' ? 'Token TKN-' + (4100 + i) + ' · adult: true' : 'Identity on record' });
+    }
+    if (method === 'guardianship_order') checks.push({ step: 'guardianship_order', result: 'passed', source: 'District Court, Chennai · GO/2024/118 · reviewer confirmed' });
+    return {
+      id,
+      childId,
+      guardianId,
+      relationship,
+      relationshipDeclaration: relationship === 'pwd_guardian'
+        ? 'Guardian declared they are the court-appointed lawful guardian.'
+        : 'Guardian declared they are the parent of the child.',
+      service: kind.service,
+      activityIds: kind.activityIds,
+      purposes: kind.purposes,
+      channel,
+      noticeVersion: kind.noticeVersion,
+      method,
+      methodRef: method ? METHOD_REFS[method] : null,
+      simulated: true,
+      checks,
+      evidenceRef: method === 'virtual_token' ? 'TKN-' + (4100 + i) : method === 'guardianship_order' ? 'GO/2024/118' : method === 'authority_issued_details' ? 'DOC-' + (52000 + i) : null,
+      status,
+      reason: extra.reason || '',
+      requestedAt,
+      decidedBy: decided ? 'Meera Iyer' : null,
+      decidedAt: decided ? at(ago, 11) : null,
+      expiresAt: status === 'guardian_pending' ? at(ago - 7, 9) : null,
+      guardianshipOrder: extra.guardianshipOrder || null,
+      history
+    };
+  });
+
+  const relationships = vpcRequests.filter(v => v.status === 'verified').map((v, i) => ({
+    id: 'REL-' + String(31 + i).padStart(4, '0'),
+    guardianId: v.guardianId,
+    dependentId: v.childId,
+    type: v.relationship,
+    declaredAt: v.requestedAt,
+    declaration: v.relationshipDeclaration,
+    evidenceRef: v.id,
+    status: 'active',
+    primary: true,
+    guardianshipOrder: v.guardianshipOrder
+  }));
+
+  return { vpcRequests, relationships };
+}
+
+// The withdrawal the demo follows: Rahul Deshmukh withdrew marketing consent (CR-5007)
+function createSeedPropagation(now, day) {
+  const t = mins => new Date(now - 1 * day + mins * 6e4).toISOString();
+  return {
+    id: 'PRP-0407',
+    consentId: 'CR-5007',
+    principalId: 'DP-02210',
+    purposes: ['Personalised Offers and Advertising', 'Promotional Offers'],
+    activities: [{ id: 'PA-004', name: 'Diwali campaign' }, { id: 'PA-009', name: 'App analytics' }],
+    targets: [
+      { system: 'Salesforce CRM', type: 'system', action: 'update_flag', sentAt: t(0), ack: 'acknowledged', ackAt: t(2) },
+      { system: 'MoEngage campaigns', type: 'processor', action: 'suppress', sentAt: t(0), ack: 'acknowledged', ackAt: t(5) },
+      { system: 'Mailchimp', type: 'processor', action: 'suppress', sentAt: t(0), ack: 'acknowledged', ackAt: t(4) },
+      { system: 'Partner NBFC (co-lending)', type: 'processor', action: 'stop_processing', sentAt: t(0), ack: 'pending', ackAt: null }
+    ],
+    retention: { outcome: 'retain', reason: 'Active loan: KYC and loan records kept under RBI KYC Directions. Marketing data erased.', jobId: 'DEL-2026-114' },
+    guardPolicy: 'GP-WD-0407',
+    createdAt: t(0),
+    createdBy: 'Meera Iyer'
+  };
+}
 
 export function createDefaultConsentState() {
   const day = 864e5;
@@ -122,15 +277,20 @@ export function createDefaultConsentState() {
   };
   const pick = arr => arr[Math.floor(rnd() * arr.length)];
 
+  // [name, description, category, subject, essential, allowed for children, status]
   const rawPurposes = [
-    ['Data Processing for Legal and Regulatory Compliance', 'To process personal data needed to meet legal and regulatory obligations.', 'Legal', 'Customer', 1],
-    ['Trade or Transfer of Personal Data of Minors (13–16 years)', 'To share data of minors aged 13–16 with partners, with guardian consent.', 'Sharing', 'Customer', 0],
-    ['Customer Support and Service Communication', 'To respond to support queries and send service messages.', 'Service', 'Customer', 1],
-    ['Personal Data Processing of Minors', 'To process personal data of minors under applicable law.', 'Processing', 'Customer', 0],
-    ['Use of Confidential Information', 'To handle confidential information shared with the organisation.', 'Processing', 'Customer', 0],
-    ['Trade or Transfer of Personal Data', 'To sell or share personal data with third parties in line with data protection laws.', 'Sharing', 'Customer', 0],
-    ['Behavioral Advertising', 'To personalise advertising based on browsing and purchase behaviour.', 'Marketing', 'Customer', 0],
-    ['Data Utilization for Additional Purposes', 'To use collected data for purposes beyond the original collection.', 'Processing', 'Customer', 0]
+    ['Legal and Regulatory Compliance (KYC, RBI reporting)', 'To verify identity and meet RBI KYC Directions, PMLA and other legal obligations.', 'Legal', 'Customer', 1, 'yes'],
+    // Was "Trade or Transfer of Personal Data of Minors (13–16 years)": a GDPR age band. Under
+    // DPDP every person under 18 is a child. Aarohan (an NBFC) is not a Fourth Schedule exempt
+    // class and partner sharing is not an exempt purpose, so this is never allowed. It is kept,
+    // disabled, as a record of the decision.
+    ["Sharing of Children's Data with Partners (under 18)", 'Not permitted. Aarohan is not an exempt class under the Fourth Schedule and sharing with partners is not an exempt purpose. Disabled so it is never offered.', 'Sharing', 'Child', 0, 'no', 'Disabled'],
+    ['Customer Support and Service Communication', 'To respond to support queries and send service and security messages.', 'Service', 'Customer', 1, 'yes'],
+    ["Processing of Children's Personal Data (under 18)", "To open and service accounts for children, with the verified consent of a parent or lawful guardian (DPDP s.9(1), Rule 10).", 'Processing', 'Child', 0, 'yes'],
+    ['Credit Assessment and Bureau Checks', 'To assess loan applications using bureau reports and income details.', 'Processing', 'Customer', 0, 'no'],
+    ['Sharing with Co-lending Partners', 'To share loan application data with co-lending partner banks and NBFCs.', 'Sharing', 'Customer', 0, 'no'],
+    ['Personalised Offers and Advertising', 'To personalise loan offers and ads based on app and website behaviour.', 'Marketing', 'Customer', 0, 'no'],
+    ['Product Analytics and Improvement', 'To analyse how customers use the app and website to improve products.', 'Processing', 'Customer', 0, 'no']
   ];
 
   const purposes = rawPurposes.map((p, i) => ({
@@ -140,19 +300,22 @@ export function createDefaultConsentState() {
     category: p[2],
     subject: p[3],
     essential: Boolean(p[4]),
+    allowForChildren: p[5],
     validity: 365,
     attributes: ['Nationality', 'Current Address'],
-    status: 'Enabled',
+    status: p[6] || 'Enabled',
     created: new Date(now - (340 - i * 7) * day).toISOString(),
     updated: new Date(now - (30 - i) * day).toISOString()
   }));
 
+  // Service messages (security alerts) are sent to run the account, not on consent, so they
+  // are never offered as a withdrawable consent choice
   const rawPrefs = [
-    ['Feature Announcements', 'Be first to hear about new features.', ['Email', 'In App']],
-    ['Security Alerts', 'Important alerts about your account security.', ['Email', 'SMS', 'In App']],
-    ['Advertising', 'Relevant offers from us and partners.', ['Email']],
-    ['Promotional Offers', 'Discounts and seasonal promotions.', ['Email', 'SMS']],
-    ['Product Updates', 'Release notes and roadmap news.', ['Email', 'In App']]
+    ['Feature Announcements', 'Be first to hear about new features.', ['Email', 'In App'], 'Marketing'],
+    ['Security Alerts', 'Important alerts about your account security. Sent as a service message.', ['Email', 'SMS', 'In App'], 'Service'],
+    ['Advertising', 'Relevant offers from us and partners.', ['Email'], 'Marketing'],
+    ['Promotional Offers', 'Discounts and seasonal promotions.', ['Email', 'SMS'], 'Marketing'],
+    ['Product Updates', 'Release notes and roadmap news.', ['Email', 'In App'], 'Marketing']
   ];
 
   const preferences = rawPrefs.map((p, i) => ({
@@ -160,13 +323,15 @@ export function createDefaultConsentState() {
     name: p[0],
     description: p[1],
     channels: p[2],
+    category: p[3],
     status: 'Enabled',
     created: new Date(now - (300 - i * 11) * day).toISOString(),
     updated: new Date(now - (24 - i * 3) * day).toISOString()
   }));
 
   const createJur = (name, code, desc, regs, rg, regions, created, updated) => ({
-    id: Math.random().toString(16).slice(2, 10) + '-' + code.slice(0, 4),
+    // Stable, so the server can tell a deleted demo jurisdiction from one it has already
+    id: 'jur-' + code,
     name,
     code,
     description: desc,
@@ -196,24 +361,30 @@ export function createDefaultConsentState() {
     });
   });
 
+  // Aarohan Finance customers (adults). [first, last, country, city, principal id, language]
   const people = [
-    ['Ravi', 'Kumar', 'India', 'Hyderabad'],
-    ['Anna', 'Schmidt', 'Germany', 'Berlin'],
-    ['Lucie', 'Martin', 'France', 'Lyon'],
-    ['Jake', 'Thompson', 'United States', 'Denver'],
-    ['Marta', 'Ruiz', 'Spain', 'Valencia'],
-    ['Pieter', 'Jansen', 'Netherlands', 'Utrecht'],
-    ['Tara', 'Singh', 'India', 'Mumbai'],
-    ['Lena', 'Fischer', 'Germany', 'Hamburg']
+    ['Ravi', 'Kumar', 'India', 'Hyderabad', 'DP-02101', 'te-IN'],
+    ['Priya', 'Kulkarni', 'India', 'Pune', 'DP-04471', 'mr-IN'],
+    ['Rahul', 'Deshmukh', 'India', 'Mumbai', 'DP-02210', 'en-IN'],
+    ['Ananya', 'Sharma', 'India', 'New Delhi', 'DP-04512', 'hi-IN'],
+    ['Lakshmi', 'Narayanan', 'India', 'Chennai', 'DP-03311', 'ta-IN'],
+    ['Imran', 'Qureshi', 'India', 'Hyderabad', 'DP-04575', 'ur-IN'],
+    ['Tara', 'Singh', 'India', 'Mumbai', 'DP-02144', 'hi-IN'],
+    ['Arjun', 'Mehta', 'India', 'Ahmedabad', 'DP-02167', 'gu-IN'],
+    // Card customers of Aarohan Finance (EU) B.V. (Data Map PA-008, GDPR)
+    ['Anika', 'Rao', 'Germany', 'Frankfurt', 'DP-08011', 'de-DE'],
+    ['Vikram', 'Nair', 'Netherlands', 'Amsterdam', 'DP-08024', 'nl-NL']
   ];
+  const consentChannels = ['Web', 'Mobile app', 'Branch tablet', 'Call centre'];
 
   const consents = [];
-  for (let i = 0; i < 48; i++) {
+  for (let i = 0; i < 42; i++) {
     const p = pick(people);
     const r = rnd();
     const st = r < 0.55 ? 'Accept All' : r < 0.75 ? 'Reject All' : 'Partial Consent';
     const age = Math.floor(rnd() * 330);
-    const withdrawn = rnd() < 0.12;
+    // CR-5007 is the withdrawal the platform demo follows (Purpose Guard, Proof Ledger)
+    const withdrawn = i === 7 || rnd() < 0.12;
     const expired = !withdrawn && rnd() < 0.1;
     const notices = [['Newsletter', '1.0'], ['Terms and Conditions', '2.1'], ['Privacy Policy', '3.0']]
       .filter(() => rnd() < 0.6)
@@ -221,9 +392,14 @@ export function createDefaultConsentState() {
 
     consents.push({
       id: 'CR-' + (5000 + i),
-      first: p[0],
-      last: p[1],
-      email: (p[0] + '.' + p[1]).toLowerCase() + i + '@example.test',
+      principalId: i === 7 ? 'DP-02210' : p[4],
+      ageBand: '18_plus',
+      channel: consentChannels[i % consentChannels.length],
+      language: p[5],
+      notice: { id: 'NT-01', version: i % 5 === 0 ? 'v3.1' : 'v3.2' },
+      first: i === 7 ? 'Rahul' : p[0],
+      last: i === 7 ? 'Deshmukh' : p[1],
+      email: (i === 7 ? 'rahul.deshmukh' : (p[0] + '.' + p[1]).toLowerCase()) + i + '@example.in',
       authId: 'auth-' + Math.floor(rnd() * 1e5),
       source: rnd() < 0.8 ? 'Private' : 'Public',
       country: p[2],
@@ -233,8 +409,8 @@ export function createDefaultConsentState() {
       aadhaar: p[2] === 'India' ? 'XXXX XXXX ' + String(1000 + Math.floor(rnd() * 9000)) : '',
       verified: rnd() < 0.7,
       maskIP: false,
-      phone: '+1 555-01' + String(10 + i),
-      zip: '1000' + (i % 9),
+      phone: '+91 98' + String(100 + i * 7).slice(-3) + ' ••' + String(200 + i * 3).slice(-3),
+      zip: String(411001 + i * 13),
       status: st,
       withdrawn,
       expired,
@@ -250,9 +426,62 @@ export function createDefaultConsentState() {
     });
   }
 
+  // Children's consents, each given by a verified parent or lawful guardian (s.9(1)).
+  // [child id, first, last, guardian id, city, channel, vpc id, purposes, days ago]
+  const childConsents = [
+    ['DP-10482', 'Aarav', 'Kulkarni', 'DP-04471', 'Pune', 'Branch tablet', 'VPC-2026-0118', ['Account opening', 'Loan servicing communication'], 13],
+    ['DP-10511', 'Diya', 'Sharma', 'DP-04512', 'New Delhi', 'Web', 'VPC-2026-0121', ['Money Smart lessons', 'Progress reports to guardian'], 9],
+    ['DP-10530', 'Kabir', 'Reddy', 'DP-04530', 'Vijayawada', 'Mobile app', 'VPC-2026-0124', ['Money Smart lessons'], 7],
+    ['DP-10575', 'Zoya', 'Qureshi', 'DP-04575', 'Hyderabad', 'Mobile app', 'VPC-2026-0127', ['Money Smart lessons', 'Progress reports to guardian'], 5],
+    ['DP-10560', 'Meher', 'Bose', 'DP-04560', 'Kolkata', 'Web', 'VPC-2026-0130', ['Money Smart lessons'], 40],
+    ['DP-03310', 'Suresh', 'Narayanan', 'DP-03311', 'Chennai', 'Branch tablet', 'VPC-2026-0133', ['Loan servicing communication'], 22]
+  ];
+  childConsents.forEach(([pid, first, last, gid, city, channel, vpcId, purposesGiven, ago], k) => {
+    const created = new Date(now - ago * day).toISOString();
+    consents.push({
+      id: 'CR-' + (5042 + k),
+      principalId: pid,
+      actingPrincipalId: gid,
+      actingAs: pid === 'DP-03310' ? 'pwd_guardian' : 'guardian',
+      vpcId,
+      ageBand: pid === 'DP-03310' ? '18_plus' : 'under_18',
+      channel,
+      language: 'en-IN',
+      notice: { id: 'NT-07', version: 'Guardian notice v1.3' },
+      first,
+      last: last[0] + '.',
+      email: 'guardian.' + gid.toLowerCase() + '@example.in',
+      authId: 'auth-' + (61000 + k),
+      source: 'Private',
+      country: 'India',
+      city,
+      ip: '203.0.113.' + (20 + k),
+      aadhaar: '',
+      verified: true,
+      maskIP: true,
+      phone: '—',
+      zip: '',
+      status: 'Partial Consent',
+      withdrawn: false,
+      expired: false,
+      created,
+      owner: 'own-guardian',
+      preferences: [
+        { name: 'Security Alerts', allowed: true },
+        { name: 'Promotional Offers', allowed: false },
+        { name: 'Advertising', allowed: false }
+      ],
+      purposesGiven,
+      proofs: [{ content: 'Guardian consent after verification ' + vpcId, form: 'Guardian & Child Consent' }],
+      legalNotices: [{ identifier: 'Guardian notice', version: '1.3', content: 'Guardian notice accepted' }],
+      receipt: { id: 'RCPT-' + (88213 + k), issuedAt: created },
+      additional: ''
+    });
+  });
+
   return {
-    company: 'Demo Acme Corp',
-    workspace: 'privacysek-demo',
+    company: 'Aarohan Finance Ltd',
+    workspace: 'aarohan-finance',
     accounts: DEMO_ACCOUNTS,
     roles: ROLES,
     consents,
@@ -281,8 +510,12 @@ export function createDefaultConsentState() {
         autoTranslate: false,
         brandColor: '#1f8a70',
         logoName: '(none)',
-        privacyUrl: 'https://northwind.example/privacy',
-        termsUrl: 'https://northwind.example/terms'
+        privacyUrl: 'https://aarohan.example/privacy',
+        termsUrl: 'https://aarohan.example/terms',
+        // Age gate before consent (DPDP s.9, Rule 10). Under 18 starts the guardian path.
+        collectAge: true,
+        ageMethod: 'Age band',
+        unknownAgeAsChild: false
       },
       languages: ['en-US', 'hi-IN'],
       content: {
@@ -333,10 +566,12 @@ export function createDefaultConsentState() {
         edges: [['n1', 'n2'], ['n2', 'n3']]
       }
     ],
+    ...createGuardianSeed(now, day),
+    propagations: [createSeedPropagation(now, day)],
     integrations: INTEGRATIONS,
     senders: [
-      { name: 'Privacy Compliance', email: 'privacy@demo-acme.test' },
-      { name: 'Support Team', email: 'support@demo-acme.test' }
+      { name: 'Privacy Compliance', email: 'privacy@aarohan.example' },
+      { name: 'Support Team', email: 'support@aarohan.example' }
     ],
     email: {
       sender: 'privacy@privacysek.test',

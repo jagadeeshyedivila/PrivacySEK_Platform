@@ -5,6 +5,8 @@ import { stageStates, stageTrack } from "../shared/stages.js";
 
 const DPIA_TONE = { "Completed": "ok", "In progress": "w", "Not started": "e" };
 const RISK_TONE = { High: "e", Medium: "w", Low: "ok" };
+const RAG_TONE = { RED: "e", AMBER: "w", GREEN: "ok" };
+const ragOfRow = iss => (iss.ev.residual && iss.ev.residual.rag) || "";
 
 // Text with a status dot. Used instead of pills so only the colour carries the state.
 const status = (tone, text) => '<span class="rp-st ' + tone + '">' + text + '</span>';
@@ -67,12 +69,14 @@ export function activityListConfig(context) {
         const dpia = "DPIA " + l.toLowerCase();
         const flag = ev.dpiaRecommended && r.dpia !== "Yes" ? ' <span class="rp-warn-t">· recommended</span>' : "";
         return '<div class="rp-meter ' + (RISK_TONE[ev.riskBand] || "n") + '"><span><b>' + ev.riskScore + '</b> ' + esc(ev.riskBand) + '</span>' +
-          '<i><s style="width:' + ev.riskScore + '%"></s></i>' + status(DPIA_TONE[l] || "n", esc(dpia) + flag) + '</div>';
-      }, text: (r, iss) => iss.ev.riskBand + " " + dpiaLabel(r) }
+          '<i><s style="width:' + ev.riskScore + '%"></s></i>' + status(DPIA_TONE[l] || "n", esc(dpia) + flag) +
+          '<span class="rp-rag ' + (RAG_TONE[ragOfRow(iss)] || "n") + '" title="Residual risk on the DPIA RAG matrix">' + (ragOfRow(iss) ? "RAG " + esc(ragOfRow(iss)) : "RAG not assessed") + '</span></div>';
+      }, text: (r, iss) => iss.ev.riskBand + " " + dpiaLabel(r) + " " + ragOfRow(iss) }
     ],
     filters: [
       { key: "law", label: "Lawful basis", options: rows => distinct(rows, r => r.law).map(o => [o[0], lawShort(o[0])]), match: (r, v) => r.law === v },
       { key: "risk", label: "Risk", options: () => [["High", "High"], ["Medium", "Medium"], ["Low", "Low"]], match: (r, v, iss) => iss.ev.riskBand === v },
+      { key: "rag", label: "RAG", options: () => [["RED", "Red"], ["AMBER", "Amber"], ["GREEN", "Green"], ["none", "Not assessed"]], match: (r, v, iss) => v === "none" ? !ragOfRow(iss) : ragOfRow(iss) === v },
       { key: "dpia", label: "DPIA", options: () => [["Not started", "Required · not started"], ["In progress", "In progress"], ["Completed", "Completed"], ["Not required", "Not required"], ["Undecided", "Undecided"], ["required", "Required (any status)"]], match: (r, v) => v === "required" ? r.dpia === "Yes" : dpiaLabel(r) === v },
       { key: "bu", label: "Business unit", options: rows => distinct(rows, r => r.bu), match: (r, v) => r.bu === v },
       { key: "stage", label: "Lifecycle", hidden: true, display: v => "Gaps in " + (steps[v] ? steps[v].t : "stage " + v), match: (r, v, iss) => { const s = stagesOf(context, r, iss)[Number(v)]; return !!s && s.state !== "ok"; } },

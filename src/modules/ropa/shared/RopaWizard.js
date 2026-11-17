@@ -165,6 +165,11 @@ function renderResultScreen(context, w) {
   const scored = w.type === "act" || w.type === "ast";
   const tiles = [];
   if (scored) tiles.push(kpi("Risk", sevPill(ev.riskBand), "Score " + ev.riskScore + " / 100", ev.riskBand === "High" ? "#EF4444" : ev.riskBand === "Medium" ? "#F59E0B" : "#14B8A6"));
+  if (w.type === "act" && ev.residual) {
+    const x = ev.residual, RAG_COLOR = { RED: "#EF4444", AMBER: "#F59E0B", GREEN: "#14B8A6" };
+    tiles.push(kpi("Residual RAG", x.rag ? '<span class="rp-rag ' + ({ RED: "e", AMBER: "w", GREEN: "ok" })[x.rag] + '">' + x.rag + '</span>' : "Not assessed",
+      esc(x.assessed ? "L" + x.likelihood + " × I" + x.impact + " = " + x.inherent + " · CE " + x.ce + " → " + Number(x.residual).toFixed(1) : "Answer the risk self-assessment"), RAG_COLOR[x.rag] || "#94A3B8"));
+  }
   if (w.type === "act") tiles.push(kpi("DPIA", ev.dpiaRecommended ? "Recommended" : "Not required", esc(ev.dpiaReason), ev.dpiaRecommended ? "#F59E0B" : "#14B8A6"));
   tiles.push(kpi("Open issues", String(open), open ? plural(ev.warnings, "warning") + " to review" : "Nothing to review", open ? "#F59E0B" : "#14B8A6"));
 

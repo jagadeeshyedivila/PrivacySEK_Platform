@@ -288,8 +288,29 @@ const tag = (id, host, category, status) => ({
   reason: category === "unclassified" ? "Category needs review before a consent-based decision." : `${category} is optional in the current demo consent state.`,
 });
 
+// Child-directed mode (DPDP s.9(3)): for a visitor under 18 only Necessary cookies are set.
+// Other categories are shown locked off, and "Accept All" stores Necessary only.
+export const CHILD_MODE_DEFAULT = {
+  enabled: true,
+  regions: ["India"],
+  askAge: true,
+  unknownAsChild: false,
+  childDirectedSites: ["moneysmart.aarohan.example"],
+};
+
+// Banner drafts saved before child mode existed get the default
+export const childModeOf = draft => ({ ...CHILD_MODE_DEFAULT, ...((draft && draft.childMode) || {}) });
+
+// Whether a simulated visitor in this region and age band gets the child banner
+export function isChildVisitor(draft, region, ageBand) {
+  const cm = childModeOf(draft);
+  if (!cm.enabled || !cm.regions.includes(region)) return false;
+  return ageBand === "under_18" || (ageBand === "unknown" && cm.unknownAsChild);
+}
+
 export function createDefaultBannerConfig() {
   return {
+    childMode: { ...CHILD_MODE_DEFAULT },
     title: "We Care About Your Privacy",
     description: "By clicking \"Accept All\" you provide consent to our website, sub-domains and all the third parties mentioned in our Privacy and Cookies Preference Setting to store cookies and other technologies to enhance your experience on our website, process your personal data, show you personalized content and advertisements, analyze website efficiency, and improve our marketing efforts.",
     privacyText: "Privacy Policy",

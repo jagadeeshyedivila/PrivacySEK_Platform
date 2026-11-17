@@ -3,6 +3,7 @@ import { BUILDER_STEP_SVG_ICONS } from './consentIcons.js';
 export const CONSENT_TOP_TABS = [
   ['dashboard', 'Dashboard', 'chart'],
   ['records', 'Consent Records', 'check'],
+  ['guardian', 'Guardian & Child', 'shield'],
   ['builder', 'Preference Build Manager', 'gear'],
   ['jurisdictions', 'Jurisdictions', 'globe'],
   ['workflows', 'Workflow Updates', 'flow'],
@@ -54,6 +55,12 @@ export function createConsentUiState() {
     recordsSortCol: 'created',
     recordsSortDir: -1,
     selectedRecordId: null,
+
+    // Guardian & Child Consent
+    guardianView: 'queue', // 'queue' | 'relationships'
+    guardianStatus: '',
+    guardianMethod: '',
+    guardianSearch: '',
 
     // Builder state
     builderStep: 0,

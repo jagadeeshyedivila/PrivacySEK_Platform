@@ -1,3 +1,5 @@
+import { childModeOf, isChildVisitor } from "../cookieData.js";
+
 export function createBannerPreviewRenderer(context) {
   const {
     state, runtime, ui, TOP_TABS, CONFIG_NAV_SECTIONS, REGIONS,
@@ -23,7 +25,11 @@ function renderLivePreviewPane() {
         <span class="cc-badge info" style="font-size:11px;">${safe(activeReg)}</span>
       </div>
 
-      <div style="display:flex;align-items:center;gap:6px;">
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+        ${childModeOf(draft).enabled && childModeOf(draft).regions.includes(activeReg) ? `
+          <div class="cc-age-switch" role="group" aria-label="Preview visitor age">
+            ${[["adult", "Adult"], ["child", "Child (under 18)"]].map(([k, l]) => `<button type="button" data-act="cc-preview-age" data-arg="${k}" aria-pressed="${(ui.previewAge || "adult") === k}">${l}</button>`).join("")}
+          </div>` : ""}
         <label style="font-size:11px;color:var(--text-3);">Language:</label>
         <select class="cc-preview-lang-select" data-act="cc-change-preview-lang">
           ${draft.enabledLanguages.map(l => `<option value="${safe(l)}" ${l === currentLang ? "selected" : ""}>${safe(l)}</option>`).join("")}
@@ -99,7 +105,28 @@ function renderLivePreviewPane() {
   </section>`;
 }
 
+// Under-18 visitor in a child-mode region: simpler wording, Necessary only (DPDP s.9(3))
+function renderChildBannerOverlay(draft) {
+  const layout = draft.layout || "bottom-bar";
+  return `<div class="cc-banner-container layout-${layout}">
+    <div class="cc-rendered-banner-card cc-child-banner">
+      <div class="cc-banner-header-row">
+        <h4 class="cc-banner-title">We only use the cookies this site needs <span class="cc-badge info">Child view</span></h4>
+      </div>
+      <p class="cc-banner-body-text">
+        You told us you are under 18. We use only the cookies that make this site work and keep it safe. We do not track you, build a profile of you, or show you targeted ads.
+        <a class="cc-banner-privacy-link" href="${safe(draft.privacyUrl || "#")}" target="_blank">Read how we protect your data</a>
+      </p>
+      <div class="cc-banner-actions-row">
+        <button class="cc-btn-accept" data-act="cc-preview-visitor-accept">OK, continue</button>
+        <button class="cc-btn-settings" data-act="cc-set-preview-mode" data-arg="preference">See what we use</button>
+      </div>
+    </div>
+  </div>`;
+}
+
 function renderRenderedBannerOverlay(draft, regConfig, t) {
+  if (isChildVisitor(draft, ui.region || "EEA & UK", ui.previewAge === "child" ? "under_18" : "18_plus")) return renderChildBannerOverlay(draft);
   const layout = draft.layout || "bottom-bar";
   const isUsa = (ui.region === "USA");
   const title = draft.title || t.title;
@@ -151,9 +178,41 @@ function renderRenderedBannerOverlay(draft, regConfig, t) {
   </div>`;
 }
 
+// Preference centre for an under-18 visitor: plain wording, nothing to switch on (DPDP s.9(3))
+function renderChildPreferenceOverlay() {
+  const plain = {
+    necessary: "Keeps the site working and your account safe. Always on.",
+  };
+  return `<div class="cc-preference-overlay">
+    <div class="cc-preference-card cc-child-banner">
+      <div class="cc-preference-card-header">
+        <h3>What this site uses <span class="cc-badge info">Child view</span></h3>
+        <button class="cc-banner-close-btn" data-act="cc-set-preview-mode" data-arg="banner" aria-label="Close">✕</button>
+      </div>
+      <div class="cc-preference-card-scroll">
+        <p>Because you are under 18, we only use what this site needs to work. Everything else is switched off and you cannot turn it on.</p>
+        <div style="display:grid;gap:10px;margin-top:6px;">
+          ${state.categories.map(cat => `<div class="cc-toggle-row ${cat.required ? "" : "cc-child-locked"}">
+              <div class="cc-toggle-info">
+                <strong>${cat.required ? "" : "🔒 "}${safe(cat.name)}</strong>
+                <small>${safe(cat.required ? (plain[cat.id] || "Needed for the site to work. Always on.") : "Off. We do not use this for anyone under 18.")}</small>
+              </div>
+              <button class="cc-switch" type="button" role="switch" aria-checked="${Boolean(cat.required)}" aria-label="${safe(cat.name)}" disabled></button>
+            </div>`).join("")}
+        </div>
+      </div>
+      <div class="cc-preference-card-actions">
+        <button class="btn sm t" data-act="cc-preview-save-pref">OK, got it</button>
+      </div>
+    </div>
+  </div>`;
+}
+
 function renderRenderedPreferenceOverlay(draft, t) {
   const pref = draft.preference || {};
   const categories = state.visitor.categories;
+  const child = isChildVisitor(draft, ui.region || "EEA & UK", ui.previewAge === "child" ? "under_18" : "18_plus");
+  if (child) return renderChildPreferenceOverlay();
 
   return `<div class="cc-preference-overlay">
     <div class="cc-preference-card">

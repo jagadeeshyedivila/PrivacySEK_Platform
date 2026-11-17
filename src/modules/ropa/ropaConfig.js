@@ -90,9 +90,13 @@ export const GDPR_BASES = [
   "Legitimate interests – Art. 6(1)(f)"
 ];
 
+// Answers to the risk self-assessment that need a gap note
+export const SELF_GAP = ["Partial", "No"];
+
 export const OPTIONS = {
   yn: ["Yes", "No"],
   ynu: ["Yes", "No", "Not yet decided"],
+  ynp: ["Yes", "Partial", "No"],
   regs: REGULATIONS,
   bu: BUSINESS_UNITS,
   purp: ["Credit decision", "Loan disbursal", "KYC & AML", "Collateral valuation", "Collections", "Customer support", "Marketing", "Fraud prevention", "Payroll", "Recruitment", "Analytics"],
@@ -273,7 +277,14 @@ export function getSteps(type, ctx) {
         { k: "sec", l: "Security measures applied?", t: "select", req: true, opts: "yn" },
         { k: "rest", l: "At rest", t: "multi", req: true, opts: "rest", full: true, showIf: d => isYes(d.sec) },
         { k: "tr", l: "In transit", t: "multi", req: true, opts: "tr", full: true, showIf: d => isYes(d.sec) },
-        { k: "orgm", l: "Organisational", t: "multi", req: true, opts: "orgm", full: true, showIf: d => isYes(d.sec) }
+        { k: "orgm", l: "Organisational", t: "multi", req: true, opts: "orgm", full: true, showIf: d => isYes(d.sec) },
+        { k: "secCtl", group: "Risk self-assessment", l: "Do you have security controls in place to protect this data?", t: "select", req: true, opts: "ynp",
+          help: "Feeds the residual risk and RAG rating." },
+        { k: "regApp", l: "Does this processing meet the data regulations that apply to it?", t: "select", req: true, opts: "ynp",
+          help: "Judge against the regulations picked on step 1." },
+        { k: "secGap", l: "What is missing?", t: "textarea", req: true, full: true,
+          showIf: d => SELF_GAP.indexOf(d.secCtl) > -1 || SELF_GAP.indexOf(d.regApp) > -1,
+          help: "Name the missing controls or unmet requirements, and who is fixing them." }
       ] }
     ];
     const cf = store.cf || [];

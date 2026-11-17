@@ -69,8 +69,10 @@ function keyOf(c, doc) {
 
 const ready = {};
 
+export const STORE_MODULES = Object.keys(SEEDS);
+
 // Indexes, then demo data the first time a module is used
-function ensureModule(module) {
+export function ensureModule(module) {
   if (!ready[module]) {
     ready[module] = (async () => {
       const db = await connectDB();
@@ -78,11 +80,89 @@ function ensureModule(module) {
       await db.collection(STATE_COLLECTION).createIndex({ module: 1 }, { unique: true });
       await Promise.all(Object.values(schema.collections).map(c => db.collection(c.name).createIndex({ [c.key]: 1 }, { unique: true })));
       const state = await db.collection(STATE_COLLECTION).findOne({ module }, { projection: { _id: 1 } });
-      if (!state) await seedModule(module);
+      if (!state && !(await hasRecords(module))) {
+        await seedModule(module).catch(async err => {
+          // Another server instance seeded it at the same moment; its data stands
+          if (err.code === 11000 && await db.collection(STATE_COLLECTION).findOne({ module })) return;
+          throw err;
+        });
+        return;
+      }
+      if (!state) await adoptModule(module);
+      await restoreModule(module);
     })().catch(err => { ready[module] = null; throw err; });
   }
   return ready[module];
 }
+
+// Seed records that also count as present when a record with the same value in this field
+// exists, for collections whose older seeds used random ids
+const NATURAL_KEYS = {
+  'consent.jurisdictions': 'code',
+};
+
+// The data is all demo data, so any seed record a user deleted is put back (once per server
+// start, through ensureModule). Records that are still there are left exactly as they are,
+// including edits, and records users added are never touched.
+export async function restoreModule(module, { dryRun = false } = {}) {
+  const db = await connectDB();
+  const schema = schemaOf(module);
+  const { collections } = splitState(module, SEEDS[module]());
+  const restored = {};
+  for (const [coll, c] of Object.entries(schema.collections)) {
+    const natural = NATURAL_KEYS[module + '.' + coll];
+    const present = await db.collection(c.name)
+      .find({}, { projection: { _id: 0, [c.key]: 1, ...(natural ? { [natural]: 1 } : {}) } })
+      .toArray();
+    const ids = new Set(present.map(d => String(d[c.key])));
+    const naturals = new Set(natural ? present.map(d => String(d[natural] ?? '').toLowerCase()) : []);
+    const missing = (collections[coll] || [])
+      .map(d => cleanDoc(module, coll, structuredClone(d)))
+      .filter(d => !ids.has(keyOf(c, d)) && !(natural && naturals.has(String(d[natural] ?? '').toLowerCase())));
+    if (!missing.length) continue;
+    restored[coll] = missing.length;
+    if (dryRun) continue;
+    try {
+      await db.collection(c.name).insertMany(missing, { ordered: false });
+    } catch (err) {
+      // Another server instance restored some of them at the same moment
+      if (!(err.code === 11000 || err.writeErrors?.every(e => e.code === 11000))) throw err;
+    }
+    await db.collection(STATE_COLLECTION).updateOne(
+      { module },
+      { $addToSet: { ['order.' + coll]: { $each: missing.map(d => keyOf(c, d)) }, seededColls: coll } },
+    );
+  }
+  if (!dryRun && Object.keys(restored).length) {
+    console.log(`[Store] Restored ${module} demo records: ${Object.entries(restored).map(([k, n]) => `${k} (${n})`).join(', ')}.`);
+  }
+  return restored;
+}
+
+async function hasRecords(module) {
+  const db = await connectDB();
+  const counts = await Promise.all(Object.values(schemaOf(module).collections)
+    .map(c => db.collection(c.name).countDocuments({}, { limit: 1 })));
+  return counts.some(Boolean);
+}
+
+// Records are there but the module's state document is not (a partial copy, or the
+// document was removed by hand). Keep the records and rebuild the state around them
+// rather than reseeding, which would delete them.
+async function adoptModule(module) {
+  const db = await connectDB();
+  const schema = schemaOf(module);
+  const { singles } = splitState(module, SEEDS[module]());
+  const now = new Date().toISOString();
+  await db.collection(STATE_COLLECTION).updateOne(
+    { module },
+    { $setOnInsert: { module, singles, order: {}, seededColls: Object.keys(schema.collections), seededAt: now, updatedAt: now } },
+    { upsert: true },
+  );
+  console.warn(`[Store] ${module} had records but no module_state; kept the records and rebuilt its state.`);
+}
+
+export const resetModule = module => seedModule(module);
 
 async function seedModule(module) {
   const db = await connectDB();
@@ -98,7 +178,7 @@ async function seedModule(module) {
   const now = new Date().toISOString();
   await db.collection(STATE_COLLECTION).replaceOne(
     { module },
-    { module, singles, order, seededAt: now, updatedAt: now },
+    { module, singles, order, seededColls: Object.keys(schema.collections), seededAt: now, updatedAt: now },
     { upsert: true },
   );
   console.log(`[Store] Seeded ${module} demo data.`);

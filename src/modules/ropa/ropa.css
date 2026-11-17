@@ -273,3 +273,19 @@
   .rp-result-h h2{font-size:18px}
   .rp-stages{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 }
+
+/* Residual risk on the DPIA RAG matrix */
+.rp-rag{display:inline-flex;align-items:center;padding:1px 8px;border-radius:99px;font-size:11.5px;font-weight:600;letter-spacing:.02em;white-space:nowrap;background:var(--surface-2);color:var(--text-2)}
+.rp-rag.e{background:rgba(239,68,68,.14);color:#B91C1C} .rp-rag.w{background:rgba(245,158,11,.16);color:#B45309} .rp-rag.ok{background:rgba(20,184,166,.15);color:#0F766E}
+.rp-meter .rp-rag{font-size:11px;margin-top:2px}
+.rp-stack .rp-none{background:var(--text-3);opacity:.35}
+.rp-mx{display:flex;gap:14px;align-items:flex-start;margin:10px 0 6px;flex-wrap:wrap}
+.rp-mx-g{display:grid;grid-template-columns:14px repeat(5,22px);grid-auto-rows:22px;gap:2px;flex:none}
+.rp-mx-ax{font-size:10px;color:var(--text-3);display:flex;align-items:center;justify-content:center}
+.rp-mx-c{border-radius:4px;opacity:.35;font-size:10.5px;font-weight:700;display:flex;align-items:center;justify-content:center;color:#fff}
+.rp-mx-c.ok{background:#14B8A6} .rp-mx-c.w{background:#F59E0B} .rp-mx-c.e{background:#EF4444}
+.rp-mx-c.on{opacity:1;outline:2px solid var(--text);outline-offset:1px}
+.rp-mx-kv{display:grid;grid-template-columns:auto auto;gap:3px 10px;margin:0;font-size:12px;flex:1;min-width:150px}
+.rp-mx-kv dt{color:var(--text-2)} .rp-mx-kv dd{margin:0;font-variant-numeric:tabular-nums;font-weight:500}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .rp-rag.e{color:#FCA5A5}:root:not([data-theme="light"]) .rp-rag.w{color:#FCD34D}:root:not([data-theme="light"]) .rp-rag.ok{color:#5EEAD4}}
+:root[data-theme="dark"] .rp-rag.e{color:#FCA5A5} :root[data-theme="dark"] .rp-rag.w{color:#FCD34D} :root[data-theme="dark"] .rp-rag.ok{color:#5EEAD4}

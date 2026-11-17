@@ -4,6 +4,7 @@ import {
   FORM_URL_BASE, OPTION_TYPES, SIZE_LIMITS, STANDARD_FIELDS, standardField, RTL_LANGUAGES, tr, fieldLabel, IDENTIFIER,
 } from "../forms/formModel.js";
 import { createFormState } from "../forms/formState.js";
+import { ON_BEHALF } from "../rightsData.js";
 
 const CAPTCHA_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
 export const newCaptcha = () => Array.from({ length: 6 }, () => CAPTCHA_CHARS[Math.floor(Math.random() * CAPTCHA_CHARS.length)]).join("");
@@ -108,6 +109,7 @@ export function createFormsRenderer(ctx) {
     const radios = (opts, type = "radio") => `<div class="rr-pv-opts">${opts.map(o => `
       <label><input type="${type}" name="${name}" value="${safe(o)}"> ${safe(o)}</label>`).join("") || "<small>No options</small>"}</div>`;
     if (x.key === "subject") return radios(f.subjectTypes);
+    if (x.key === "onBehalf") return radios(ON_BEHALF.map(o => o[0]));
     if (x.key === "type") return radios(f.requestTypes);
     const type = x.custom ? x.type : standardField(x.key).type;
     const opts = x.options || [];

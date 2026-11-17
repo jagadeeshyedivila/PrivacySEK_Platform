@@ -60,6 +60,12 @@ export function createBuilderRenderer(context) {
             ${renderSettingCard('Show Badge Button After Consent', 'If enabled, a privacy settings floating badge will remain on the website.', 'badge')}
             ${renderSettingCard('Enable Verification', 'If enabled, verification is required before consent is submitted.', 'verification')}
           </div>
+          <h4 class="cp-gd-subhead">Age check before consent (DPDP s.9, Rule 10)</h4>
+          <div class="cp-setting-grid">
+            ${renderSettingCard('Collect age before consent', 'Ask for an age band first. Under 18 starts the guardian consent path in Guardian & Child.', 'collectAge')}
+            ${renderSettingCard('Treat unknown age as a child', 'For services likely to be used by children: no answer means the child path.', 'unknownAgeAsChild')}
+          </div>
+          <p class="cp-gd-note">Child threshold: under 18 (fixed for DPDP). Purposes marked “No, never for children” are not shown on the child path.</p>
         `;
       } else if (currentSub === 'Verification') {
         if (!settings.verification) {

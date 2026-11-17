@@ -4,6 +4,7 @@ import {
   OPTIONS, RECORD_TYPES, RETENTION_YEARS, GDPR_ROLES, DPDP_ROLES, DISCOVERY_CLASS_MAP,
   CAT_GOV, CAT_FIN, CAT_BIO, CAT_VOICE, DPC_CHILD, getSteps, regsFlags, isYes, has
 } from "./ropaConfig.js";
+import { riskScores, ragOf } from "../dpia/dpiaModel.js";
 
 /* ---------------- field helpers ---------------- */
 
@@ -157,33 +158,101 @@ function foreignCountries(d) {
   return all.filter((c, i) => c !== "India" && all.indexOf(c) === i);
 }
 
-export function activityRisk(d) {
-  const reasons = [];
-  const add = (n, why) => reasons.push([n, why]);
+// Every activity risk factor with its weight and whether it measures impact ("i": what is at stake)
+// or likelihood ("l": how exposed the data is). activityRisk adds them all, exactly as before.
+function activityFactors(d) {
+  const out = [];
+  const add = (n, why, kind) => out.push([n, why, kind]);
   const cat = d.cat || [];
-  if (has(cat, CAT_GOV)) add(20, "Government identifiers");
-  if (has(cat, CAT_FIN)) add(15, "Financial data");
-  if (has(cat, CAT_BIO)) add(15, "Biometric / photo");
-  if (has(cat, CAT_VOICE)) add(10, "Voice recordings");
-  if (has(d.dpc, DPC_CHILD)) add(25, "Children's data");
-  if (isYes(d.ai)) add(15, "Uses AI / ML");
-  if (isYes(d.ai) && isYes(d.adm)) add(10, "Fully automated decision");
+  if (has(cat, CAT_GOV)) add(20, "Government identifiers", "i");
+  if (has(cat, CAT_FIN)) add(15, "Financial data", "i");
+  if (has(cat, CAT_BIO)) add(15, "Biometric / photo", "i");
+  if (has(cat, CAT_VOICE)) add(10, "Voice recordings", "i");
+  if (has(d.dpc, DPC_CHILD)) add(25, "Children's data", "i");
+  if (isYes(d.ai)) add(15, "Uses AI / ML", "i");
+  if (isYes(d.ai) && isYes(d.adm)) add(10, "Fully automated decision", "i");
   if (isYes(d.xb)) {
-    add(10, "Cross-border transfer");
-    if (isEmpty(d.xs)) add(5, "No transfer safeguard");
+    add(10, "Cross-border transfer", "l");
+    if (isEmpty(d.xs)) add(5, "No transfer safeguard", "l");
   }
-  if (isYes(d.ext) && d.erole === "Data Processor" && d.dpa === "No") add(15, "Processor without a DPA");
-  if (d.sec === "No") add(20, "No security measures");
+  if (isYes(d.ext) && d.erole === "Data Processor" && d.dpa === "No") add(15, "Processor without a DPA", "l");
+  if (d.sec === "No") add(20, "No security measures", "l");
   if (isYes(d.sec)) {
     const missing = rule6Items(d).filter(i => !i.ok).length;
-    if (missing) add(3 * missing, missing + " Rule 6 safeguard" + (missing > 1 ? "s" : "") + " missing");
+    if (missing) add(3 * missing, missing + " Rule 6 safeguard" + (missing > 1 ? "s" : "") + " missing", "l");
   }
-  if (d.freq === "Continuous") add(5, "Continuous collection");
-  if (d.srct === "Third party") add(5, "Third-party source");
+  if (d.freq === "Continuous") add(5, "Continuous collection", "l");
+  if (d.srct === "Third party") add(5, "Third-party source", "l");
+  return out;
+}
+
+export function activityRisk(d) {
+  const reasons = activityFactors(d).map(x => [x[0], x[1]]);
   reasons.sort((a, b) => b[0] - a[0]);
   const score = Math.min(100, reasons.reduce((s, r) => s + r[0], 0));
   return { score, reasons };
 }
+
+/* ---------------- residual risk on the DPIA RAG matrix ---------------- */
+// Impact and likelihood points become 1–5 on the DPIA 5×5 matrix. The two self-assessment answers
+// give the control effectiveness (0–4: a self-assessment never reaches 5, which needs DPIA evidence).
+// Residual and RAG come from the DPIA module's own riskScores, so both modules always agree.
+export const IMPACT_CUTS = [0, 15, 30, 50];      // 0→1 · 1–15→2 · 16–30→3 · 31–50→4 · >50→5
+export const LIKELIHOOD_CUTS = [0, 10, 20, 35];  // 0→1 · 1–10→2 · 11–20→3 · 21–35→4 · >35→5
+export const SELF_CREDIT = { Yes: 2, Partial: 1, No: 0 };
+const toScale = (pts, cuts) => 1 + cuts.filter(c => pts > c).length;
+const answered = v => Object.prototype.hasOwnProperty.call(SELF_CREDIT, v || "");
+
+// What the Rule 6 checklist suggests for the security question: Yes with at most one gap,
+// No when nothing is in place, Partial otherwise. Same threshold as the credit check below.
+export function rule6Suggestion(d) {
+  if (d.sec === "No") return { ans: "No", ok: 0, total: 5 };
+  if (!isYes(d.sec)) return null;
+  const items = rule6Items(d), ok = items.filter(i => i.ok).length;
+  return { ans: ok >= items.length - 1 ? "Yes" : ok === 0 ? "No" : "Partial", ok, total: items.length };
+}
+
+export function residualRisk(d) {
+  const f = activityFactors(d || {});
+  const pts = k => f.filter(x => x[2] === k).reduce((s, x) => s + x[0], 0);
+  const impactPts = pts("i"), likelihoodPts = pts("l");
+  const impact = toScale(impactPts, IMPACT_CUTS), likelihood = toScale(likelihoodPts, LIKELIHOOD_CUTS);
+  const inherent = impact * likelihood;
+  const out = {
+    impact, likelihood, impactPts, likelihoodPts, inherent, inherentRag: ragOf(inherent),
+    assessed: false, ce: null, secCredit: "", residual: null, rag: "", notes: [], floor: ""
+  };
+  if (!answered(d.secCtl) || !answered(d.regApp)) return out;
+
+  // Consistency check: "Yes" only earns full credit when the Rule 6 checklist backs it up
+  let sec = d.secCtl;
+  const sug = rule6Suggestion(d);
+  if (sec !== "No" && d.sec === "No") { sec = "No"; out.notes.push("Security credit set to No: no security measures are listed."); }
+  else if (sec === "Yes" && sug && sug.ans !== "Yes") { sec = "Partial"; out.notes.push("Security credit reduced to Partial: " + (sug.total - sug.ok) + " Rule 6 safeguards missing."); }
+  out.secCredit = sec;
+  out.ce = SELF_CREDIT[sec] + SELF_CREDIT[d.regApp];
+  const sc = riskScores({ likelihood, impact, controlEffectiveness: out.ce });
+  out.residual = sc.residual;
+  out.rag = sc.rag;
+
+  // Minimum ratings
+  const critical = has(d.dpc, DPC_CHILD) || has(d.cat || [], CAT_GOV);
+  if (sec === "No" && critical && out.rag !== "RED") {
+    out.rag = "RED"; out.floor = "Raised to RED: no security controls on " + (has(d.dpc, DPC_CHILD) ? "children's data" : "government identifiers") + ".";
+  } else if (d.regApp === "No" && out.rag === "GREEN") {
+    out.rag = "AMBER"; out.floor = "Raised to AMBER: the applicable regulations are not met.";
+  }
+  out.assessed = true;
+  return out;
+}
+
+export function formatResidual(x) {
+  return "L" + x.likelihood + " × I" + x.impact + " = " + x.inherent + (x.assessed ? ", CE " + x.ce + " → " + Number(x.residual).toFixed(1) : "");
+}
+
+// Completeness credit from a self-assessment answer: Yes 1, Partial ½, anything else 0
+const tri = v => (v === "Yes" ? true : v === "Partial" ? 0.5 : false);
+export const itemCredit = v => (v === true ? 1 : v === 0.5 ? 0.5 : 0);
 
 function assetRisk(d) {
   const reasons = [];
@@ -448,6 +517,26 @@ function evaluateActivity(d, ctx, out) {
       r("R-23", "info", 5, "tr", "TLS 1.3 recommended", "TLS 1.3 is recommended for new integrations.", "Best practice");
     }
   }
+  // R-26 / R-27 / R-28 risk self-assessment. Severity follows the residual RAG.
+  const rr = out.residual;
+  if (rr && rr.assessed) {
+    const sevOf = () => (rr.rag === "GREEN" ? "info" : "warning");
+    const ragTxt = " Residual RAG is " + rr.rag + ".";
+    const selfRule = (id, field, ans, title, what, cite) => {
+      if (ans !== "No" && ans !== "Partial") return;
+      const sev = sevOf();
+      r(id, sev, 5, field, title + ": " + ans, what + (ans === "No" ? " are not in place." : " are only partly in place.") + ragTxt, cite);
+      if (rr.rag === "RED") out.high.push(id);
+    };
+    selfRule("R-26", "secCtl", d.secCtl, "Security controls", "Security controls for this data", "DPDP s.8(5) · Rule 6");
+    const cites = [f.dpdp && "DPDP s.8(1)", f.gdpr && "GDPR Art. 5(2)"].filter(Boolean).join(" · ") || "Applicable regulations";
+    selfRule("R-27", "regApp", d.regApp, "Regulatory requirements", "The requirements of the applicable regulations", cites);
+    if (d.secCtl === "Yes" && rr.secCredit !== "Yes") {
+      r("R-28", "info", 5, "secCtl", "Security answer not backed by the checklist",
+        rr.notes[0] + " The matrix uses " + rr.secCredit + " until the safeguards are added.", "DPDP Rules 2025, Rule 6",
+        { label: "Set to " + rr.secCredit, patch: { secCtl: rr.secCredit } });
+    }
+  }
   // R-24 stale assessment
   if (d.date && daysSince(d.date) > 365) {
     const months = Math.round(daysSince(d.date) / 30.4);
@@ -472,7 +561,7 @@ function evaluateActivity(d, ctx, out) {
       ["Recipients", d.int === "No" || filled("irec") ? (d.ext === "No" || filled("erec")) : false],
       ["Third-country transfers", d.xb === "No" || (isYes(d.xb) && filled("xc") && filled("xs"))],
       ["Erasure time limits", filled("ret")],
-      ["Security measures", isYes(d.sec) && (filled("rest") || filled("tr") || filled("orgm"))]
+      ["Security measures", isYes(d.sec) && (filled("rest") || filled("tr") || filled("orgm")) ? tri(rr && rr.secCredit) : false]
     ] });
   }
   if (f.dpdp) {
@@ -484,7 +573,8 @@ function evaluateActivity(d, ctx, out) {
       ["Data categories", filled("cat") && filled("attr")],
       ["Retention", filled("ret")],
       ["Processors & contracts", d.ext === "No" || (filled("erec") && (d.erole !== "Data Processor" || isYes(d.dpa)))],
-      ["Safeguards", isYes(d.sec)],
+      ["Safeguards", isYes(d.sec) ? tri(rr && rr.secCredit) : false],
+      ["Regulatory requirements", tri(d.regApp)],
       ["Grievance contact", filled("dpo")]
     ] });
   }
@@ -602,12 +692,16 @@ const SEV_ORDER = { error: 0, warning: 1, suggest: 2, info: 3 };
 export function evaluateRecord(type, record, store, ctx) {
   const d = record || {};
   const c = Object.assign({}, ctx, { store, type });
-  const out = { results: [], riskScore: 0, riskBand: "Low", riskReasons: [], completeness: [], dpiaRecommended: false, dpiaReason: "", rule6: null, high: [] };
+  const out = { results: [], riskScore: 0, riskBand: "Low", riskReasons: [], completeness: [], dpiaRecommended: false, dpiaReason: "", rule6: null, rule6Suggest: null, residual: null, high: [] };
 
   if (type === "act") {
     const risk = activityRisk(d);
     out.riskScore = risk.score; out.riskReasons = risk.reasons; out.riskBand = riskBand(risk.score);
-    const rec = dpiaRecommendation(d, risk.score);
+    out.residual = residualRisk(d);
+    out.rule6Suggest = rule6Suggestion(d);
+    let rec = dpiaRecommendation(d, risk.score);
+    // Residual RED only adds a recommendation, it never removes one
+    if (!rec.rec && out.residual.rag === "RED") rec = { rec: true, why: "Residual RAG is RED on the risk matrix (" + formatResidual(out.residual) + ")." };
     out.dpiaRecommended = rec.rec; out.dpiaReason = rec.why;
     evaluateActivity(d, c, out);
   } else if (type === "ast") {

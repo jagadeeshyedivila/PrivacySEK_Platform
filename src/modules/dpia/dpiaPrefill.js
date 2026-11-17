@@ -46,6 +46,14 @@ const RULES = {
   "DPIA-001": (sc, s) => s.sample?.org?.role && { response: "Yes", reason: `Organisation profile records the role as “${s.sample.org.role}”.` },
   "DPIA-003": sc => sc.acts.length && allSome(sc.acts, x => x.dpo, p => `DPO ${join(p.map(x => x.dpo))} is named on ${tag(p)}.`, f => `No DPO named on ${tag(f)}.`),
   "DPIA-005": (sc, s) => /SDF/i.test(s.sample?.org?.role || "") && { response: "Yes", reason: "Organisation profile marks Aarohan as an SDF candidate; the SDF duty is tracked in the Obligation Cockpit." },
+  "DPIA-006": sc => {
+    const a = sc.acts.filter(x => ["Yes", "Partial", "No"].includes(x.regApp));
+    if (!a.length) return null;
+    const gaps = a.filter(x => x.regApp !== "Yes");
+    const response = !gaps.length ? "Yes" : gaps.length === a.length && gaps.every(x => x.regApp === "No") ? "No" : "Partial";
+    const regs = join(a.flatMap(x => list(x.regs)));
+    return { response, reason: `Data Map regulatory self-assessment: ${a.map(x => `${x.id} ${x.regApp}`).join(", ")} against ${regs || "no regulation picked"}.` + (gaps.some(x => x.secGap) ? ` Gaps: ${gaps.filter(x => x.secGap).map(x => `${x.id}: ${x.secGap}`).join(" ")}` : "") };
+  },
   "DPIA-007": (sc, s) => { const p = (s.ropa?.pol || []).find(x => x.ptype === "Privacy notice"); return p && { response: "Yes", reason: `${p.id} ${p.name} ${p.ver}, effective ${p.eff}.`, links: [{ go: "ropa", label: p.id }] }; },
 
   /* DATA */

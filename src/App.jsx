@@ -15,22 +15,21 @@ export default function App() {
     setError(null);
     try {
       const fetchPromise = platformApi.fetchInitData();
+      // Generous enough for a hosted backend waking from sleep (Render free tier) and a remote cluster
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Backend connection timeout")), 1200)
+        setTimeout(() => reject(new Error("Backend connection timeout")), 20000)
       );
       const initData = await Promise.race([fetchPromise, timeoutPromise]);
       if (!initData?.org?.short || !Array.isArray(initData.guard?.approvals)) {
-        throw new Error("Platform data is not initialized. Restart the backend to seed demo data, or run npm run migrate.");
+        throw new Error("Platform data is not initialized. Run npm run seed against this database, then reload.");
       }
       // Editable ROPA, Consent and Discovery records; a store that fails to load runs on demo data
       await hydrateModuleStores();
       setData(initData);
     } catch (err) {
+      // Show the error screen: silently switching to demo data would hide that nothing is being saved
       console.warn("[PrivacySEK] Backend initialization failed or timed out:", err);
-      // Auto-fallback to comprehensive sample data for demo mode
-      console.info("[PrivacySEK] Running in Demo Mode with sample data.");
-      setData(sampleData);
-      return;
+      setError(err.message || String(err));
     } finally {
       setLoading(false);
     }
@@ -63,7 +62,7 @@ export default function App() {
         }} />
         <h2 style={{ fontSize: "18px", fontWeight: "600", margin: "0 0 6px" }}>PrivacySEK Platform</h2>
         <p style={{ color: "#9CA3AF", fontSize: "14px", margin: 0 }}>
-          Connecting to local MongoDB persistence layer...
+          Connecting to the PrivacySEK backend...
         </p>
         <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
       </div>
@@ -104,7 +103,7 @@ export default function App() {
             <h2 style={{ fontSize: "18px", fontWeight: "600", margin: 0 }}>Database Connection Error</h2>
           </div>
           <p style={{ color: "#D1D5DB", fontSize: "14px", lineHeight: "1.6", marginBottom: "16px" }}>
-            The platform is configured to use local MongoDB as its sole persistence layer, but could not connect to the backend API or MongoDB server.
+            The platform stores its data in MongoDB through the backend API, but could not load it. In Demo Mode nothing you change is saved.
           </p>
           <div style={{
             background: "#1F2937",
@@ -118,7 +117,7 @@ export default function App() {
             {error}
           </div>
           <p style={{ color: "#9CA3AF", fontSize: "13px", marginBottom: "20px" }}>
-            Ensure your local MongoDB instance is active on <code>mongodb://127.0.0.1:27017</code> and start the backend service:
+            Check that the database in <code>MONGODB_URI</code> is reachable and the backend is running:
             <br /><code style={{ display: "block", marginTop: "6px", color: "#A7F3D0" }}>npm run server</code>
           </p>
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>

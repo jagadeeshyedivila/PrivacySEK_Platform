@@ -1,3 +1,5 @@
+import { childModeOf, isChildVisitor } from "../cookieData.js";
+
 export function registerActions(context, ACT) {
   const {
     state, runtime, ui, TOP_TABS, CONFIG_NAV_SECTIONS, REGIONS,
@@ -482,12 +484,38 @@ export function registerActions(context, ACT) {
   };
 
   // Interactive visitor simulation inside preview
+  const childVisitor = () => isChildVisitor(state.draft, ui.region || "EEA & UK", ui.previewAge === "child" ? "under_18" : "18_plus");
+
   ACT["cc-preview-visitor-accept"] = () => {
+    // Under-18 visitor: Accept stores Necessary only (DPDP s.9(3))
+    if (childVisitor()) {
+      const categories = Object.fromEntries(state.categories.map(c => [c.id, Boolean(c.required)]));
+      state.visitor = { status: "Child: necessary only", categories, updatedAt: isoNow() };
+      recordConsent("Accept All", categories);
+      persist("Child visitor: only Necessary cookies set. Tracking stays off (s.9(3)).");
+      return;
+    }
     const categories = Object.fromEntries(state.categories.map(c => [c.id, true]));
     state.visitor = { status: "Accepted all", categories, updatedAt: isoNow() };
     recordConsent("Accept All", categories);
     persist("Simulated visitor: Accepted All Categories");
   };
+
+  ACT["cc-preview-age"] = age => {
+    ui.previewAge = age === "child" ? "child" : "adult";
+    if (ui.previewAge === "child") state.visitor.categories = Object.fromEntries(state.categories.map(c => [c.id, Boolean(c.required)]));
+    runtime.render();
+  };
+
+  const toggleChild = (key, label) => {
+    const cm = childModeOf(state.draft);
+    cm[key] = !cm[key];
+    state.draft.childMode = cm;
+    persist(`${label} ${cm[key] ? "on" : "off"}`);
+  };
+  ACT["cc-child-toggle"] = () => toggleChild("enabled", "Child-directed mode");
+  ACT["cc-child-askage"] = () => toggleChild("askAge", "Age check on first visit");
+  ACT["cc-child-unknown"] = () => toggleChild("unknownAsChild", "Unknown age treated as child:");
 
   ACT["cc-preview-visitor-reject"] = () => {
     const categories = Object.fromEntries(state.categories.map(c => [c.id, c.required]));
@@ -509,6 +537,7 @@ export function registerActions(context, ACT) {
   };
 
   ACT["cc-preview-toggle-cat"] = catId => {
+    if (childVisitor() && !state.categories.find(c => c.id === catId)?.required) return;
     state.visitor.categories[catId] = !state.visitor.categories[catId];
     runtime.render();
   };

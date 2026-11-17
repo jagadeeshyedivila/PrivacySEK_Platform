@@ -1,5 +1,31 @@
+import { principalById, AGE_BAND_LABELS } from '../../../../platform/principals.js';
+
 export function createRecordsRenderer(context) {
   const { state, runtime, ui, DATE_RANGES, safe, formatDate, formatDateTime, canEdit } = context;
+
+  // Age band, guardian, channel, notice version and withdrawal propagation for one record
+  function renderPrincipalPanel(c) {
+    const vpc = c.vpcId ? (state.vpcRequests || []).find(v => v.id === c.vpcId) : null;
+    const prop = (state.propagations || []).find(p => p.consentId === c.id);
+    const guardian = c.actingPrincipalId ? principalById(c.actingPrincipalId) : null;
+    const item = (label, value) => `<div><small style="color:var(--text-2);font-size:11.5px">${label}</small><div style="font-weight:600;margin-top:2px">${value}</div></div>`;
+    return `
+      <div class="card" style="padding:18px;margin-bottom:14px">
+        <h4 style="margin:0 0 14px;color:var(--text);font-size:14px">Principal, channel and notice</h4>
+        <div class="cp-grid-4">
+          ${item('Data principal ID', `<span class="cp-cell-mono">${safe(c.principalId || '—')}</span>`)}
+          ${item('Age band', c.ageBand === 'under_18' ? runtime.pill('risk', 'Under 18 · child') : safe(AGE_BAND_LABELS[c.ageBand] || 'Not captured'))}
+          ${item('Channel', safe(c.channel || '—'))}
+          ${item('Notice version', c.notice ? `${safe(c.notice.id)} · ${safe(c.notice.version)}` : '<span class="dim">Not linked</span>')}
+          ${guardian ? item(c.actingAs === 'pwd_guardian' ? 'Lawful guardian (Rule 11)' : 'Consent given by guardian', safe(guardian.displayName)) : ''}
+          ${vpc ? item('Guardian verification', `<a href="javascript:void(0)" class="cp-id-link" data-act="cp-gd-open" data-arg="${safe(vpc.id)}">${safe(vpc.id)}</a> · ${safe(vpc.status)} <span class="dim">(simulated)</span>`) : ''}
+          ${c.receipt ? item('Receipt', `<span class="cp-cell-mono">${safe(c.receipt.id)}</span>`) : ''}
+          ${prop ? item('Withdrawal propagation', `<a href="javascript:void(0)" class="cp-id-link" data-act="cp-prop-open" data-arg="${safe(prop.id)}">${safe(prop.id)}</a> · ${prop.targets.filter(t => t.ack === 'acknowledged').length}/${prop.targets.length} acknowledged`) : ''}
+        </div>
+        ${c.ageBand === 'under_18' ? '<p class="cp-gd-note" style="margin-top:12px">Tracking, behavioural monitoring and targeted advertising are blocked for this child (DPDP s.9(3)).</p>' : ''}
+      </div>
+    `;
+  }
 
   function renderRecordDetail(c) {
     if (!c) {
@@ -90,6 +116,8 @@ export function createRecordsRenderer(context) {
           </div>
         </div>
       </div>
+
+      ${renderPrincipalPanel(c)}
 
       <div class="cp-grid-2">
         <div class="card" style="padding:18px">
@@ -369,6 +397,7 @@ export function createRecordsRenderer(context) {
                         <span class="cp-badge ${bCls}">${safe(r.status)}</span>
                         ${r.withdrawn ? '<span class="cp-badge b-Withdrawn">Withdrawn</span>' : ''}
                         ${r.expired ? '<span class="cp-badge b-Expired">Expired</span>' : ''}
+                        ${r.actingPrincipalId ? `<span class="cp-badge b-Partial" title="Consent given by a verified guardian">${r.ageBand === 'under_18' ? 'Child · guardian' : 'Guardian (PwD)'}</span>` : ''}
                       </div>
                     </td>
                     <td>

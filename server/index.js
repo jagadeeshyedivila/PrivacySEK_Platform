@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { startSchedulerDaemon } from './scheduler.js';
 import { connectDB, closeDB } from './db.js';
+import { ensureSeeded } from './seed/index.js';
 import { cookieRouter } from './routes/cookieRoutes.js';
 import { platformRouter } from './routes/platformRoutes.js';
 import { scannerRouter } from './routes/scannerRoutes.js';
@@ -28,6 +29,13 @@ async function startServer() {
   } catch (err) {
     console.error('[FATAL] Backend could not establish MongoDB connection:', err.message);
     process.exit(1);
+  }
+
+  // A new database gets the demo data once; set SEED_DEMO_DATA=false to start empty
+  try {
+    await ensureSeeded();
+  } catch (err) {
+    console.error('[Seed] Could not seed demo data:', err.message);
   }
 
   const server = app.listen(PORT, () => {

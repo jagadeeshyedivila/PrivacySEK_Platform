@@ -27,7 +27,7 @@ const act = (o) => Object.assign({}, BASE, SEC_STRONG, o);
 function seedActivities() {
   return [
     act({
-      id: "PA-001", bu: "Retail Lending", date: daysAgo(31), name: "Loan origination",
+      id: "PA-001", secCtl: "Yes", regApp: "Yes", bu: "Retail Lending", date: daysAgo(31), name: "Loan origination",
       sub: "Application intake, Bureau pull, Sanction, Disbursal",
       desc: "Collects applicant identity, income and bureau data to assess and disburse personal and MSME loans, including minor co-applicants added with a guardian.",
       purp: ["Credit decision", "Loan disbursal"], law: "Consent (s.6)", dpia: "Yes", dpiaState: "Completed",
@@ -44,7 +44,7 @@ function seedActivities() {
       cf_branch_code: "MUM-001", upd: stamp(5)
     }),
     act({
-      id: "PA-002", bu: "Compliance", date: daysAgo(45), name: "KYC verification",
+      id: "PA-002", secCtl: "Yes", regApp: "Yes", bu: "Compliance", date: daysAgo(45), name: "KYC verification",
       sub: "Aadhaar eKYC, PAN check, Video KYC",
       desc: "Verifies customer identity against Aadhaar, PAN and a live photo before any account is opened, as required by the RBI KYC Master Direction and PMLA.",
       purp: ["KYC & AML"], law: "Legal obligation (s.7(c))", dpia: "Yes", dpiaState: "Completed",
@@ -70,7 +70,7 @@ function seedActivities() {
       cf_branch_code: "KOC-014", upd: stamp(72)
     }),
     act({
-      id: "PA-004", bu: "Growth", date: daysAgo(20), name: "Diwali campaign",
+      id: "PA-004", secCtl: "Yes", regApp: "Partial", secGap: "Marketing withdrawals stop MoEngage sends but not the Mailchimp list (DPIA-047). Daniel Okafor is adding the suppression step.", bu: "Growth", date: daysAgo(20), name: "Diwali campaign",
       sub: "Segment build, SMS and WhatsApp offers, Email offers",
       desc: "Sends festive pre-approved loan offers to customers who opted in to marketing, using segments built from the CRM and sent through MoEngage and Mailchimp.",
       purp: ["Marketing"], law: "Consent (s.6)", dpia: "No",
@@ -83,7 +83,7 @@ function seedActivities() {
       ret: "3 years after last interaction", retp: "Erased earlier when marketing consent is withdrawn", upd: stamp(26)
     }),
     act({
-      id: "PA-005", bu: "Collections", date: daysAgo(60), name: "Collections calling",
+      id: "PA-005", secCtl: "Partial", regApp: "Partial", secGap: "Call recordings are not masked in the dialler and the recovery-agent script is not yet reviewed against the RBI Fair Practices Code. Owner: Kavya Menon.", bu: "Collections", date: daysAgo(60), name: "Collections calling",
       sub: "Reminder calls, Field visits, Call recording",
       desc: "Contacts borrowers with overdue EMIs by phone and field visits, records calls for quality and dispute handling, and shares dues with the collection agency.",
       purp: ["Collections"], law: "Voluntarily provided for a specified purpose (s.7(a))", dpia: "Yes", dpiaState: "Not started",
@@ -95,7 +95,7 @@ function seedActivities() {
       ret: "3 years after last interaction", retp: "Dispute window for collection calls", upd: stamp(50)
     }),
     act({
-      id: "PA-006", bu: "HR", date: daysAgo(90), name: "Payroll",
+      id: "PA-006", secCtl: "Yes", regApp: "Yes", bu: "HR", date: daysAgo(90), name: "Payroll",
       sub: "Salary run, PF and TDS filings",
       desc: "Processes monthly salaries, provident fund and tax deductions for Aarohan employees in SAP SuccessFactors, which is hosted in the EU.",
       purp: ["Payroll"], law: "Employment purposes (s.7(i))", dpia: "No", dpiaWhy: "Standard employment processing reviewed by HR and Legal in the annual SDF DPIA.",
@@ -110,7 +110,7 @@ function seedActivities() {
       ret: "8 years after loan closure (books of account)", retp: "Payroll records are books of account", upd: stamp(120)
     }),
     act({
-      id: "PA-007", bu: "Risk", date: daysAgo(40), name: "Credit scoring model",
+      id: "PA-007", secCtl: "No", regApp: "Partial", secGap: "Model training extracts hold raw PAN in the analytics sandbox, with no masking or access review there (DPIA-072, DPIA-092). Algorithmic due diligence under Rule 13(3) is still open.", bu: "Risk", date: daysAgo(40), name: "Credit scoring model",
       sub: "Feature build, Scoring, Decision",
       desc: "Scores loan applications with an in-house ML model using bureau, income and transaction data, and auto-approves small-ticket loans under the threshold.",
       purp: ["Credit decision"], law: "Consent (s.6)", dpia: "Yes", dpiaState: "In progress",
@@ -122,7 +122,7 @@ function seedActivities() {
       ret: "8 years after loan closure (books of account)", retp: "Decision logs kept with the loan record", upd: stamp(8)
     }),
     act({
-      id: "PA-008", entity: "Aarohan Finance (EU) B.V.", bu: "Digital & Cards", regs: [DPDP, "EU GDPR"], role: "Controller",
+      id: "PA-008", secCtl: "Yes", regApp: "Partial", secGap: "The Art. 30 record for the EU entity is not yet signed off by the EU representative.", entity: "Aarohan Finance (EU) B.V.", bu: "Digital & Cards", regs: [DPDP, "EU GDPR"], role: "Controller",
       date: daysAgo(15), name: "EU customer servicing", dpo: "Arjun Rao",
       sub: "Ticket intake, Account queries",
       desc: "Handles support tickets from EU-resident customers of Aarohan Finance (EU) B.V. in Freshdesk, with the support team in India answering them.",
@@ -138,7 +138,7 @@ function seedActivities() {
       ret: "3 years after last interaction", retp: "Complaint handling and limitation period", upd: stamp(3)
     }),
     act({
-      id: "PA-009", bu: "Digital & Cards", date: daysAgo(10), name: "App analytics",
+      id: "PA-009", secCtl: "Yes", regApp: "Yes", bu: "Digital & Cards", date: daysAgo(10), name: "App analytics",
       sub: "Event capture, Churn scoring",
       desc: "Captures in-app events, device IDs, location and transaction events in BigQuery to measure app usage and score churn and cross-sell propensity.",
       purp: ["Analytics"], law: "Consent (s.6)", dpia: "Not yet decided",
