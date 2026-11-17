@@ -25,6 +25,9 @@ import {
 
 import { createDashboardRenderer } from "./screens/dashboard/ConsentDashboard.jsx";
 import { createRecordsRenderer } from "./screens/records/ConsentRecords.jsx";
+import { createGuardianRenderer } from "./screens/guardian/ConsentGuardian.jsx";
+import { registerGuardianActions } from "./actions/guardianActions.js";
+import { registerWithdrawalActions } from "./actions/withdrawalActions.js";
 import { createBuilderRenderer } from "./screens/builder/ConsentBuilder.jsx";
 import { createJurisdictionsRenderer } from "./screens/jurisdictions/ConsentJurisdictions.jsx";
 import { createWorkflowsRenderer } from "./screens/workflows/ConsentWorkflows.jsx";
@@ -95,6 +98,7 @@ export function createConsentView(moduleRuntime) {
   renderers = {
     dashboard: createDashboardRenderer(context),
     records: createRecordsRenderer(context),
+    guardian: createGuardianRenderer(context),
     builder: createBuilderRenderer(context),
     jurisdictions: createJurisdictionsRenderer(context),
     workflows: createWorkflowsRenderer(context),
@@ -243,6 +247,9 @@ export function registerConsentActions(moduleRuntime, ACT, AFTER) {
   const context = getConsentContext();
   context.renderers = renderers;
   registerActions(context, ACT);
+  registerGuardianActions(context, ACT);
+  // Replaces the flag-only withdraw from consentActions with an impact step and propagation
+  registerWithdrawalActions(context, ACT);
 }
 
 export default function Consent({ html }) {

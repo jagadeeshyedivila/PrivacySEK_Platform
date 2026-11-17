@@ -22,7 +22,18 @@ export const REQUEST_TYPES = [
 ];
 export const typeRef = type => (REQUEST_TYPES.find(t => t.id === type) || {}).ref || "—";
 
-export const SUBJECT_TYPES = ["Customer", "Borrower", "Employee", "Contractor", "Nominee"];
+// Who the data principal is. Acting for someone else (parent, guardian, nominee) is asked
+// separately ("I am submitting for"), so "Nominee" is not a subject type.
+export const SUBJECT_TYPES = ["Customer", "Borrower", "Employee", "Contractor"];
+
+// "I am submitting for" on web forms, and the requester relation it maps to
+export const ON_BEHALF = [
+  ["Myself", "self"],
+  ["My child (under 18)", "parent"],
+  ["A person under my lawful guardianship", "pwd_guardian"],
+  ["As a nominee", "nominee"],
+];
+export const RELATION_LABELS = { self: "Self", parent: "Parent", lawful_guardian: "Lawful guardian", pwd_guardian: "Lawful guardian (PwD)", nominee: "Nominee" };
 export const CHANNELS = ["Rights portal", "Mobile app", "Branch", "Email", "Call centre"];
 export const LANGUAGES = ["English", "Hindi", "Marathi", "Tamil", "Telugu", "Kannada", "Urdu", "Bengali"];
 export const PROPERTIES = ["Aarohan Personal Loans", "Aarohan Gold Loans", "Aarohan HR"];
@@ -134,6 +145,48 @@ function buildRequests(now) {
     requests.push(makeRequest({ id, type, person: PEOPLE[pi], age, status, channel, rnd, pick, now }));
   });
 
+  // Requests filed by a parent, a lawful guardian or a nominee for someone else. Under DPDP
+  // s.2(j) the parent or lawful guardian is the Data Principal for a child or a person with
+  // disability, so they exercise the rights. The link comes from Consent's relationships.
+  // [id, type, principal (as PEOPLE row), age, status, channel, requester]
+  const onBehalf = [
+    ["DSR-2026-0491", "Erasure", ["Aarav", "K.", "Maharashtra", "Pune", "Marathi"], 3, "Verifying Identity", "Rights portal",
+      { relation: "parent", name: "Priya Kulkarni", principalId: "DP-04471", dependentId: "DP-10482", relationshipId: "REL-0031", verification: { method: null, simulated: true, result: "pending" } }],
+    ["DSR-2026-0489", "Access", ["Diya", "S.", "Delhi", "New Delhi", "Hindi"], 6, "In Progress", "Mobile app",
+      { relation: "parent", name: "Ananya Sharma", principalId: "DP-04512", dependentId: "DP-10511", relationshipId: "REL-0032", verification: { method: "existing_kyc_record", simulated: true, result: "passed" } }],
+    ["DSR-2026-0487", "Withdraw consent", ["Kabir", "R.", "Andhra Pradesh", "Vijayawada", "Telugu"], 1, "New", "Rights portal",
+      { relation: "parent", name: "Vijay Reddy", principalId: "DP-04530", dependentId: "DP-10530", relationshipId: "REL-0033", verification: { method: null, simulated: true, result: "pending" } }],
+    ["DSR-2026-0485", "Correction", ["Suresh", "Narayanan", "Tamil Nadu", "Chennai", "Tamil"], 4, "Verifying Identity", "Branch",
+      { relation: "pwd_guardian", name: "Lakshmi Narayanan", principalId: "DP-03311", dependentId: "DP-03310", relationshipId: "REL-0036", verification: { method: null, simulated: true, result: "pending" } }],
+    ["NOM-2026-0484", "Access", ["Mohan", "Iyer", "Karnataka", "Bengaluru", "Kannada"], 8, "Verifying Identity", "Email",
+      { relation: "nominee", name: "Revathi Iyer", principalId: null, dependentId: null, relationshipId: null, nominationId: "NOM-0012", evidence: "death_certificate", verification: { method: null, simulated: true, result: "pending" } }],
+  ];
+  onBehalf.forEach(([id, type, person, age, status, channel, requester]) => {
+    const r = makeRequest({ id, type, person, age, status, channel, rnd, pick, now });
+    // Subject type describes the data principal; who filed is in r.requester
+    r.subject = requester.relation === "nominee" ? "Customer (deceased)"
+      : requester.relation === "pwd_guardian" ? "Person with disability (via guardian)" : "Child (via guardian)";
+    r.principalId = requester.dependentId;
+    // Replies go to the person who filed. A child has no email of their own on record; a
+    // deceased principal keeps theirs, shown apart from the nominee's.
+    requester.email = `${requester.name}`.toLowerCase().replace(/\s+/g, ".") + "@example.in";
+    if (requester.relation !== "nominee") r.email = "";
+    r.requester = requester;
+    const forWhom = requester.relation === "pwd_guardian" ? "the person under my guardianship" : "my child";
+    const ask = {
+      Erasure: `My child was added as a co-applicant on a loan that was never taken. Please delete my child's personal data.`,
+      Access: `Please share a copy of the personal data you hold about ${forWhom} and how it is used.`,
+      "Withdraw consent": `I withdraw consent for ${forWhom}'s progress reports and lesson reminders on Money Smart.`,
+      Correction: `The address and date of birth recorded for ${forWhom} are wrong.`,
+    }[type] || DETAILS[type];
+    r.details = requester.relation === "nominee"
+      ? "I am the registered nominee. The account holder has passed away. Please share the data you hold so I can close the accounts."
+      : `I am submitting this for ${forWhom}. ${ask}`;
+    // Verifying the guardian replaces the plain OTP step
+    r.activity = r.activity.map(a => /Identity verified with OTP/.test(a.text) ? { ...a, text: "Guardian identity and relationship verified (simulated). Status advanced to In Progress." } : a);
+    requests.push(r);
+  });
+
   for (let i = 0; i < 30; i++) {
     const type = pick(REQUEST_TYPES).id;
     const r = rnd();
@@ -151,7 +204,9 @@ function buildRequests(now) {
 function makeRequest({ id, type, person, age, status, channel, rnd, pick, now }) {
   const [first, last, state, city, language] = person;
   const created = new Date(now - age * DAY);
+  // Only the grievance limit is statutory under DPDP (Rule 14(3)); the rest is internal policy
   const slaDays = type === "Grievance" ? 90 : 30;
+  const slaType = type === "Grievance" ? "statutory" : "internal";
   const deadline = new Date(created.getTime() + slaDays * DAY);
   const completedAt = status === "Complete"
     ? new Date(Math.min(now - DAY, created.getTime() + (4 + Math.floor(rnd() * 34)) * DAY))
@@ -194,6 +249,8 @@ function makeRequest({ id, type, person, age, status, channel, rnd, pick, now })
     created: created.toISOString(),
     updated: (completedAt || new Date(created.getTime() + Math.min(age, 3) * DAY)).toISOString(),
     deadline: deadline.toISOString(),
+    slaType,
+    slaDays,
     completedAt: completedAt ? completedAt.toISOString() : null,
     verified: stageIdx >= 2 || status === "Complete",
     rejectReason: status === "Rejected" ? "Identity could not be verified." : "",
@@ -244,13 +301,13 @@ export function createInitialRightsData() {
         updated: new Date(now - 12 * DAY).toISOString(),
         languages: ["English", "Hindi", "Marathi", "Tamil"],
         requestTypes: REQUEST_TYPES.slice(0, 6).map(t => t.id),
-        subjectTypes: ["Customer", "Borrower", "Nominee"],
+        subjectTypes: ["Customer", "Borrower"],
         headerColor: "#0f766e",
         headerText: "#ffffff",
         headerSize: 24,
         footerColor: "#f1f3f6",
         footerSize: 12,
-        welcome: "Use this form to access, correct or erase your data, nominate someone, or raise a grievance. We respond within the timelines set by the DPDP Act.",
+        welcome: "Use this form to access, correct or erase your data, nominate someone, or raise a grievance. We respond within our published timelines; grievances within 90 days (DPDP Rules, Rule 14(3)).",
         footer: "Aarohan Finance Ltd · Grievance Officer: dpo@aarohan.example · You may also complain to the Data Protection Board of India.",
         deadlineDays: 30,
         captcha: true,

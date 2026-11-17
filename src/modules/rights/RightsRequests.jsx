@@ -37,6 +37,7 @@ import { createWorkflowsRenderer } from "./screens/RightsWorkflows.js";
 import { createTemplatesRenderer } from "./screens/RightsTemplates.js";
 import { createTasksRenderer } from "./screens/RightsTasks.js";
 import { registerRightsActions as registerActions } from "./actions/rightsActions.js";
+import { loadConsentState } from "../consent/consentData.js";
 import "./rights.css";
 
 const ui = createRightsUiState();
@@ -136,6 +137,8 @@ function getContext() {
     DEMO_ACCOUNTS, ROLES, STAGES, CLOSED, DATE_RANGES, FORM_TABS, FORM_SECTIONS, DETAIL_TABS, FIELD_TYPES,
     typeRef, safe, formatDate, formatDateTime, isClosed, dueIn, canEdit, dis, inRange, statusPill, dueBadge,
     persist, logActivity, sanitizeRich,
+    // Guardian ↔ dependent links are owned by Consent; Rights only reads them
+    relationships: () => { try { return loadConsentState().relationships || []; } catch (e) { return []; } },
     switchUser: user => {
       currentUser = user;
       saveCurrentUser(user);

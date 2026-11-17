@@ -9,6 +9,7 @@ import { I, MARK } from "../components/icons/icons.js";
 import { createRuntimeHelpers, escapeHtml } from "../utils/helpers.js";
 import { formatNumber } from "../utils/formatters.js";
 import { onStoreError } from "./moduleStore.js";
+import { events, on as onEvent, unreadCount, markAllRead } from "./events.js";
 let mounted = false;
 
 /**
@@ -256,7 +257,14 @@ ACT.jur = function(j){ S.jur=j; d.querySelectorAll(".jur button").forEach(functi
 ACT.bu = function(){ S.bu=(S.bu+1)%D.org.bu.length; $("#bu-l").textContent=D.org.bu[S.bu]; render(); toast("Showing "+D.org.bu[S.bu]); };
 ACT.menu = function(){ $("#rail").classList.add("open"); d.body.insertAdjacentHTML("beforeend",'<div class="scrim" data-act="closemenu"></div>'); };
 ACT.closemenu = function(){ $("#rail").classList.remove("open"); closeOv(); };
-ACT.notif = function(){ drawer("Notifications","Today", '<div class="list card">'+[["alert","Breach report due in 41 hours","INC-2026-019"],["shield","New approval: Partner NBFC share","APR-118 · 11 min"],["inbox","Grievance escalated","GRV-2026-0471"],["search","Scan found 3 new SPI fields","Discovery"],["truck","Mailchimp DPA renewal due","Vendor Risk"]].map(function(n){ return '<div class="li"><span class="ic">'+I[n[0]]+'</span><span><b>'+n[1]+'</b><small>'+n[2]+'</small></span><span></span></div>'; }).join("")+'</div>'); };
+/* Notifications come from the platform event bus (platform/events.js) */
+var NOTIF_ICON = { breach:"alert", guard:"shield", rights:"inbox", discovery:"search", vendors:"truck", consent:"user" };
+function updatePip(){ var p=$('.ibtn[data-act="notif"] .pip'); if(p) p.hidden = unreadCount()===0; }
+ACT.notif = function(){
+  var list = events();
+  drawer("Notifications", list.length+" recent · "+unreadCount()+" unread", '<div class="list card">'+list.map(function(n){ return '<div class="li" style="cursor:pointer" data-go="'+esc(n.go||"cockpit")+'"><span class="ic" style="color:var(--'+(n.severity==="act"?"block":n.severity==="risk"?"mask":"text-2")+')">'+(I[NOTIF_ICON[n.source]]||I.bell)+'</span><span><b>'+esc(n.title)+'</b><small>'+esc(n.detail||"")+(n.read?"":" · new")+'</small></span><span></span></div>'; }).join("")+'</div>');
+  markAllRead(); updatePip();
+};
 ACT["toggle-sidebar"] = function(){
   S.sidebarCollapsed = !S.sidebarCollapsed;
   try {
@@ -383,11 +391,14 @@ on(d, "keydown", function(e){
 on(window, "hashchange", function(){ var h=location.hash.slice(1); if(h && h!==S.view && VIEWS[h]) go(h); });
 
 shell();
+updatePip();
+var offEvents = onEvent(updatePip);
 var contentRoot = createRoot($("#content"));
 var start=(location.hash||"").slice(1); go(VIEWS[start]?start:"cockpit");
 return function(){
   clearInterval(S.feedTimer); clearInterval(S.clk);
   listeners.forEach(function(l){ l[0].removeEventListener(l[1], l[2]); });
+  offEvents();
   listeners = [];
   mounted = false;
   setTimeout(function(){ contentRoot.unmount(); },0);

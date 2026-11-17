@@ -15,6 +15,8 @@ export const SIZE_LIMITS = {
 // half: shares a row with the next half-width field in the preview.
 export const STANDARD_FIELDS = [
   { key: "subject", label: "I am a", type: "Radio", required: true, lock: true, reqLock: true },
+  // A parent or lawful guardian is the Data Principal for a child or person with disability (DPDP s.2(j))
+  { key: "onBehalf", label: "I am submitting for", type: "Radio", required: false },
   { key: "type", label: "What would you like to do?", type: "Radio", required: true, lock: true, reqLock: true },
   { key: "first", label: "First name", type: "Textbox", required: true, lock: true, half: true },
   { key: "last", label: "Last name", type: "Textbox", required: true, lock: true, half: true },
@@ -41,7 +43,7 @@ export const FORM_DEFAULTS = {
   footerColor: "#f1f3f6",
   footerTextColor: "#4a5570",
   footerSize: 12,
-  welcome: "Use this form to exercise your rights over your personal data. We will respond within the timelines set by law.",
+  welcome: "Use this form to exercise your rights over your personal data. We respond within our published timelines; grievances within 90 days (DPDP Rules, Rule 14(3)).",
   footer: "Aarohan Finance Ltd · Grievance Officer: dpo@aarohan.example",
   thankYou: "Thank you. We have received your request and sent a confirmation to your email.",
   deadlineDays: 30,
@@ -82,6 +84,11 @@ export function normalizeForm(f) {
     if (f[k] === undefined || f[k] === null) f[k] = clone(FORM_DEFAULTS[k]);
   });
   if (!Array.isArray(f.languages) || !f.languages.length) f.languages = [f.language || "English"];
+  // "Nominee" moved to the "I am submitting for" question; drop it from older forms
+  if (Array.isArray(f.subjectTypes)) {
+    f.subjectTypes = f.subjectTypes.filter(s => s !== "Nominee");
+    if (!f.subjectTypes.length) f.subjectTypes = ["Customer"];
+  }
   delete f.language;
   if (!f.identifier) f.identifier = String(f.id || "form").replace(/^form-/, "");
   ["headerColor", "headerText", "welcomeColor", "footerColor", "footerTextColor"].forEach(k => {
@@ -149,7 +156,7 @@ export function formProblems(f, forms) {
    speaker review them before going live. */
 const STRINGS = {
   English: {
-    subject: "I am a", type: "What would you like to do?", first: "First name", last: "Last name", email: "Email",
+    subject: "I am a", onBehalf: "I am submitting for", type: "What would you like to do?", first: "First name", last: "Last name", email: "Email",
     mobile: "Registered mobile", state: "State", city: "City", details: "Request details",
     upload: "Attachment (optional)", browse: "Browse", noFile: "No file chosen", captcha: "Captcha",
     capPh: "Enter the characters above", submit: "Submit request", submitOtp: "Verify with OTP and submit",

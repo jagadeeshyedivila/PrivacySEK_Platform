@@ -545,3 +545,8 @@
 @media print {
   .rr-top-nav, .rr-meta-bar, .rr-head-actions, .rr-banner { display: none !important; }
 }
+
+/* Requests filed by a guardian or nominee (DPDP s.2(j), s.14) */
+.rr-guardian .sim-notice { margin-bottom: 12px; font-size: 12.5px; }
+.rr-guardian-acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.rr-clock .rr-clock-note { opacity: .75; font-style: italic; }

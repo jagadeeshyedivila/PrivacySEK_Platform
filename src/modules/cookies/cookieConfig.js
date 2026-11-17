@@ -26,6 +26,7 @@ export function createCookieUiState() {
     builderSection: "config",
     region: "EEA & UK",
     previewMode: "banner",
+    previewAge: "adult", // "adult" | "child" | "unknown": simulated visitor age band in the preview
     device: "Desktop",
     contentSub: "banner",
     vendorSub: "iab",

@@ -2,6 +2,7 @@
 // module store, and status changes are written to the Proof Ledger. Web form actions live in
 // formActions.js.
 import { registerFormActions, requestLeave } from "./formActions.js";
+import { simulateVerification } from "../../../platform/verifySim.js";
 
 export function registerRightsActions(ctx, ACT) {
   const {
@@ -181,6 +182,8 @@ export function registerRightsActions(ctx, ACT) {
       created: created.toISOString(),
       updated: created.toISOString(),
       deadline: new Date(created.getTime() + days * DAY).toISOString(),
+      slaType: type === "Grievance" ? "statutory" : "internal",
+      slaDays: days,
       completedAt: null,
       verified: false,
       rejectReason: "",
@@ -215,6 +218,31 @@ export function registerRightsActions(ctx, ACT) {
   });
 
   /* ---------------- request detail ---------------- */
+  // Simulated verification of a guardian or nominee who files for someone else
+  ACT["rr-gd-verify"] = guard(arg => {
+    const [id, how] = String(arg).split("|");
+    const r = findRequest(id);
+    if (!r || !r.requester || isClosed(r)) return;
+    const q = r.requester;
+    if (how === "reuse") {
+      const rel = (ctx.relationships() || []).find(x => x.id === q.relationshipId && x.status === "active");
+      if (!rel) { toast("No verified relationship found in Consent. Verify the guardian instead."); return; }
+      q.verification = { method: "existing_kyc_record", simulated: true, result: "passed", ref: rel.evidenceRef, at: nowIso() };
+      logActivity(r, `Guardian verified by reusing ${rel.evidenceRef} (${rel.id}) from Consent. Simulated, not legal verification.`);
+    } else if (how === "token") {
+      const res = simulateVerification("virtual_token", q.principalId);
+      if (res.result !== "passed") { toast(res.reason || "Verification failed"); logActivity(r, `Guardian verification failed: ${res.reason}`); persist(); render(); return; }
+      q.verification = { method: "virtual_token", simulated: true, result: "passed", ref: res.evidenceRef, at: nowIso() };
+      logActivity(r, `Guardian verified with virtual token ${res.evidenceRef}. Simulated, not legal verification.`);
+    } else {
+      q.verification = { method: "nominee_evidence", simulated: true, result: "passed", ref: q.nominationId, at: nowIso() };
+      logActivity(r, `Nominee evidence (${String(q.evidence || "").replace("_", " ")}) and nomination ${q.nominationId} confirmed. Simulated.`);
+    }
+    runtime.ledgerAdd("Rights requester verified", `${r.id} · ${q.relation} · simulated`);
+    persist(`${q.relation === "nominee" ? "Nominee" : "Guardian"} verified`);
+    render();
+  });
+
   ACT["rr-detail-tab"] = t => { ui.detailTab = t; render(); };
   ACT["rr-mail-vis"] = v => { ui.mailVis = v; render(); };
 
@@ -223,6 +251,11 @@ export function registerRightsActions(ctx, ACT) {
     if (!r || isClosed(r)) return;
     const next = STAGES.indexOf(stage), cur = STAGES.indexOf(r.status);
     if (next !== cur + 1) { toast(next <= cur ? "That phase is already done" : "Advance one phase at a time"); return; }
+    // A request filed for someone else needs the guardian or nominee verified first (s.2(j), s.14)
+    if (stage === "In Progress" && r.requester && r.requester.relation !== "self" && r.requester.verification?.result !== "passed") {
+      toast(`Verify the ${r.requester.relation === "nominee" ? "nominee" : "guardian"} before work starts on this request`);
+      return;
+    }
     r.status = stage;
     if (stage === "In Progress") r.verified = true;
     if (stage === "Complete") r.completedAt = nowIso();

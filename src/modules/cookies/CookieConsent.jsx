@@ -8,6 +8,7 @@ import {
   ALL_LANGUAGES,
   LANGUAGE_TRANSLATIONS,
   REGION_COUNTRY_OPTIONS,
+  isChildVisitor,
 } from "./cookieData.js";
 import { CONFIG_NAV_SECTIONS, REGIONS, TOP_TABS, createCookieUiState } from "./cookieConfig.js";
 import { createBannerRenderer } from "./banner/BannerRenderer.js";
@@ -129,12 +130,20 @@ function persist(message) {
 }
 
 function recordConsent(action, categories = state.visitor.categories, source = "Consent banner") {
+  const ageBand = ui.previewAge === "child" ? "under_18" : "18_plus";
+  const child = isChildVisitor(state.draft, ui.region || "EEA & UK", ageBand);
+  // A child's receipt can only ever hold Necessary (DPDP s.9(3)), whatever was clicked
+  const stored = child
+    ? Object.fromEntries(Object.keys({ ...categories, necessary: true }).map(k => [k, k === "necessary"]))
+    : { ...categories, necessary: true };
   const newRecord = {
     property: "demo.privacysek.example",
     timestamp: isoNow(),
     action,
-    categories: { ...categories, necessary: true },
-    result: action === "Close" ? "No change" : (action === "Disable All" || action === "Reject All") ? "Optional categories off" : "Choice recorded",
+    ageBand: child ? "under_18" : ageBand,
+    childMode: child,
+    categories: stored,
+    result: child ? "Child: Necessary only" : action === "Close" ? "No change" : (action === "Disable All" || action === "Reject All") ? "Optional categories off" : "Choice recorded",
     version: state.versions[state.versions.length - 1]?.version || 1,
     source,
     device: ui.device || "Desktop",
@@ -186,7 +195,8 @@ export function createCookieConsentView(moduleRuntime) {
         if (Array.isArray(data.categories)) state.categories = data.categories;
         if (data.draft) state.draft = data.draft;
         if (data.published) state.published = data.published;
-        if (Array.isArray(data.versions) && data.versions.length) state.versions = data.versions;
+        // The API returns newest first; the module reads the last entry as the live version
+        if (Array.isArray(data.versions) && data.versions.length) state.versions = data.versions.slice().sort((a, b) => a.version - b.version);
         if (Array.isArray(data.blockedTags)) state.blockedTags = data.blockedTags;
         if (Array.isArray(data.availableTags)) state.availableTags = data.availableTags;
         if (Array.isArray(data.consentRecords)) state.consentRecords = data.consentRecords;

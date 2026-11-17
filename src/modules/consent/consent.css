@@ -1956,3 +1956,57 @@ button.cp-dash-tile:hover { border-color: var(--text-3); }
 }
 
 .cp-dash-callout .cp-dash-inline { font-size: inherit; color: var(--text); }
+
+/* ---------- Guardian & Child Consent (DPDP s.9, Rules 10–11) ---------- */
+/* Prefixed cp-gd-/cp-wd- so drawer and modal content (rendered outside .cp-module) is styled too */
+.cp-gd { display: grid; gap: 14px; }
+.cp-gd-lede { margin: 4px 0 0; color: var(--text-2); font-size: 13px; max-width: 760px; }
+.cp-gd-kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 1200px) { .cp-gd-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .cp-gd-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.cp-gd-card { padding: 0; overflow: hidden; }
+.cp-gd-seg { display: flex; gap: 4px; padding: 10px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.cp-gd-seg button { border: 0; background: transparent; padding: 7px 12px; border-radius: 8px; font: inherit; font-size: 13px; font-weight: 600; color: var(--text-2); cursor: pointer; }
+.cp-gd-seg button.active { background: var(--surface-2); color: var(--text); }
+.cp-gd-seg button span { margin-left: 6px; font-size: 11.5px; color: var(--text-3); }
+.cp-gd-toolbar { display: flex; gap: 8px; align-items: center; padding: 12px; flex-wrap: wrap; }
+.cp-gd-toolbar .table-search-input { flex: 1 1 240px; min-width: 0; }
+.cp-gd-count { margin-left: auto; font-size: 12px; color: var(--text-3); }
+.cp-gd-table td { vertical-align: top; }
+.cp-gd-sub { display: block; font-size: 11.5px; color: var(--text-3); margin-top: 2px; font-weight: 400; }
+.cp-gd-sub-strong { font-weight: 600; }
+.cp-gd-note { font-size: 12.5px; color: var(--text-2); margin: 6px 0; line-height: 1.5; }
+.cp-gd-subhead { margin: 18px 0 8px; font-size: 13px; color: var(--text); }
+.cp-gd-sec { border-top: 1px solid var(--line); padding: 14px 0 4px; }
+.cp-gd-sec:first-of-type { border-top: 0; }
+.cp-gd-sec h4 { margin: 0 0 10px; font-size: 13px; color: var(--text); }
+.cp-gd-methods { display: grid; gap: 8px; }
+.cp-gd-method { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
+.cp-gd-method.on { border-color: var(--accent, #14B8A6); background: var(--surface-2); }
+.cp-gd-method input { margin-top: 3px; width: auto; }
+.cp-gd-method small { display: block; font-size: 12px; color: var(--text-2); margin-top: 2px; }
+.cp-gd-method small.dim { display: inline; color: var(--text-3); }
+.cp-gd-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 8px; }
+@media (max-width: 560px) { .cp-gd-fields { grid-template-columns: minmax(0, 1fr); } }
+.cp-gd-checks { display: grid; gap: 6px; margin: 8px 0 10px; }
+.cp-gd-check { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; }
+.cp-gd-check small { display: block; color: var(--text-2); font-size: 12px; }
+.cp-gd-status { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; font-size: 12.5px; }
+.cp-gd-err { min-height: 0; margin: 4px 0; color: var(--block); font-size: 12.5px; }
+.cp-gd-history { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; font-size: 12.5px; }
+.cp-gd-history li { padding-left: 12px; border-left: 2px solid var(--line); }
+.cp-gd-history small { color: var(--text-3); }
+.cp-gd-history p { margin: 2px 0 0; color: var(--text-2); }
+.sim-notice { margin-bottom: 4px; font-size: 12.5px; }
+
+/* Withdrawal impact */
+.cp-wd-list { display: grid; gap: 6px; margin: 8px 0; }
+.cp-wd-item { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; cursor: pointer; }
+.cp-wd-item input { width: auto; }
+.cp-wd-item small { margin-left: auto; }
+.cp-wd-impact h4 { margin: 14px 0 6px; font-size: 12.5px; color: var(--text-2); text-transform: uppercase; letter-spacing: .04em; }
+.cp-wd-impact h4:first-child { margin-top: 0; }
+.cp-wd-impact p { margin: 0; font-size: 13px; line-height: 1.5; }
+.cp-wd-targets { margin: 0; padding-left: 18px; font-size: 13px; display: grid; gap: 4px; }
+/* Long purpose lists and method names wrap so status and actions stay on screen */
+.cp-gd-table td.cp-gd-wrap { white-space: normal; min-width: 200px; }

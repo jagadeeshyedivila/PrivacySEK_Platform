@@ -1,6 +1,7 @@
 import { calculateWorkflowIssues } from '../screens/workflows/ConsentWorkflows.jsx';
 import { CONSENT_SDK_SNIPPET } from '../screens/implementation/ConsentImplementation.jsx';
 import { CP_ICONS } from '../consentIcons.js';
+import { CHILD_RULES, CHILD_EXEMPTION_NOTE, legalBasisOptionsFor } from '../consentData.js';
 
 export function registerConsentActions(context, ACT) {
   const {
@@ -932,7 +933,7 @@ export function registerConsentActions(context, ACT) {
           <label class="required">Subject Type</label>
           <select id="cp_pu_subject">
             <option value="">Select Subject Type</option>
-            ${['Customer', 'Employee', 'Contractor', 'Student'].map(s => `
+            ${['Customer', 'Child', 'Employee', 'Contractor', 'Student'].map(s => `
               <option value="${s}" ${p?.subject === s ? 'selected' : ''}>${s}</option>
             `).join('')}
           </select>
@@ -949,6 +950,14 @@ export function registerConsentActions(context, ACT) {
           <option value="No" ${!p?.essential ? 'selected' : ''}>No (Optional)</option>
           <option value="Yes" ${p?.essential ? 'selected' : ''}>Yes (Strictly Required)</option>
         </select>
+      </div>
+
+      <div class="cp-form-group">
+        <label for="cp_pu_child">Allowed for children (DPDP s.9)</label>
+        <select id="cp_pu_child">
+          ${Object.entries(CHILD_RULES).map(([k, l]) => `<option value="${k}" ${(p?.allowForChildren || 'no') === k ? 'selected' : ''}>${l}</option>`).join('')}
+        </select>
+        <small class="dim" style="font-size:11.5px">Purposes set to No are never offered to a guardian. Marketing, profiling and ads stay No (s.9(3)). ${CHILD_EXEMPTION_NOTE}</small>
       </div>
 
       <div class="cp-form-group">
@@ -1004,6 +1013,7 @@ export function registerConsentActions(context, ACT) {
       subject,
       validity,
       essential,
+      allowForChildren: dialog.querySelector('#cp_pu_child')?.value || 'no',
       attributes,
       updated: new Date().toISOString()
     };
@@ -1469,7 +1479,7 @@ export function registerConsentActions(context, ACT) {
                         aria-label="Legal basis for ${safe(p.name)}"
                       >
                         <option value="">Select Assignment</option>
-                        ${LEGAL_BASIS_OPTIONS.map(opt => `
+                        ${legalBasisOptionsFor(d.regulations || []).concat(lb.basis && !legalBasisOptionsFor(d.regulations || []).includes(lb.basis) ? [lb.basis] : []).map(opt => `
                           <option value="${opt}" ${lb.basis === opt ? 'selected' : ''}>${opt}</option>
                         `).join('')}
                       </select>

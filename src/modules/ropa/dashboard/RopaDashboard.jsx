@@ -82,6 +82,24 @@ export function createDashboardRenderer(context) {
     const riskBody = stack + '<div class="list rp-top">' + top.map(a =>
       '<div class="li rp-click" data-act="rp-open" data-arg="' + esc("act|" + a.rec.id) + '"><span class="mono">' + a.iss.ev.riskScore + '</span><span><b>' + esc(a.rec.name) + '</b><small>' + esc(a.iss.ev.riskReasons.slice(0, 2).map(x => x[1]).join(" · ")) + '</small></span>' + sevPill(a.iss.ev.riskBand) + '</div>').join("") + '</div>';
 
+    // Residual risk on the DPIA RAG matrix, after the security and regulatory self-assessment
+    const ragOfA = a => (a.iss.ev.residual && a.iss.ev.residual.rag) || "";
+    const rags = { RED: 0, AMBER: 0, GREEN: 0, none: 0 };
+    acts.forEach(a => { rags[ragOfA(a) || "none"]++; });
+    const RAG_CLS = { RED: "high", AMBER: "medium", GREEN: "low" };
+    const ragStack = '<div class="rp-stack" role="img" aria-label="' + rags.RED + ' red, ' + rags.AMBER + ' amber, ' + rags.GREEN + ' green, ' + rags.none + ' not assessed">' +
+      ["RED", "AMBER", "GREEN"].filter(b => rags[b]).map(b => '<span class="rp-' + RAG_CLS[b] + '" style="width:' + (rags[b] / total * 100) + '%"></span>').join("") +
+      (rags.none ? '<span class="rp-none" style="width:' + (rags.none / total * 100) + '%"></span>' : "") + '</div>' +
+      '<div class="row rp-legend">' + ["RED", "AMBER", "GREEN"].map(b => '<button class="rp-link" data-act="rp-dash-go" data-arg="act|rag=' + b + '"><span class="rp-rag ' + ({ RED: "e", AMBER: "w", GREEN: "ok" })[b] + '">' + b + '</span> <b>' + rags[b] + '</b></button>').join("") +
+      '<button class="rp-link" data-act="rp-dash-go" data-arg="act|rag=none"><span class="rp-rag n">Not assessed</span> <b>' + rags.none + '</b></button></div>';
+    const topRes = acts.filter(a => a.iss.ev.residual && a.iss.ev.residual.assessed)
+      .sort((a, b) => (b.iss.ev.residual.residual - a.iss.ev.residual.residual) || (b.iss.ev.residual.inherent - a.iss.ev.residual.inherent)).slice(0, 5);
+    const ragBody = ragStack + '<div class="list rp-top">' + topRes.map(a => {
+      const x = a.iss.ev.residual;
+      return '<div class="li rp-click" data-act="rp-open" data-arg="' + esc("act|" + a.rec.id + "|5|secCtl") + '"><span class="mono">' + Number(x.residual).toFixed(1) + '</span><span><b>' + esc(a.rec.name) + '</b><small>' +
+        esc("L" + x.likelihood + " × I" + x.impact + " · security " + a.rec.secCtl + " · regulations " + a.rec.regApp) + '</small></span>' + '<span class="rp-rag ' + ({ RED: "e", AMBER: "w", GREEN: "ok" })[x.rag] + '">' + x.rag + '</span>' + '</div>';
+    }).join("") + '</div>' + '<p class="dim rp-small">Same 5×5 matrix and bands as the DPIA module.</p>';
+
     // Recently updated, any type
     const recent = [];
     Object.keys(RECORD_TYPES).forEach(t => (store[t] || []).forEach(r => recent.push({ t, r })));
@@ -104,7 +122,8 @@ export function createDashboardRenderer(context) {
 
     return banner + kpis +
       '<div class="g g2">' + card("Activities by lawful basis", lawBody) + card("Cross-border transfers", xbBody, tag(plural(xbActs.length, "activity", "activities")), true) + '</div>' +
-      '<div class="g g2">' + card("Risk distribution", riskBody) + card("Recently updated", recentBody, null, true) + '</div>' +
+      '<div class="g g2">' + card("Risk distribution", riskBody) + card("Residual RAG", ragBody) + '</div>' +
+      card("Recently updated", recentBody, null, true) +
       card("Compliance issues", issueTable, tag("Top " + topIssues.length + " of " + issues.length), true) +
       '<p class="dim rp-small rp-foot">Compliance checks are illustrative guidance for this demo, not legal advice.</p>';
   };

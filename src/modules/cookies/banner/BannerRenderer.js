@@ -152,7 +152,7 @@ function renderConfigEditor() {
     content = renderFrequencySectionForm();
   } else if (section === "vendors") {
     title = "Vendors & Frameworks";
-    sub = "Manage IAB TCF v2.2 vendors, Google CMP list, and signal integration";
+    sub = "Manage IAB vendors, Google vendors, and signal integration";
     content = renderVendorsSectionForm();
   }
 
@@ -171,41 +171,209 @@ function renderConfigEditor() {
 
 /* 3.1 CONFIG SECTION */
 
-function showPublishHistoryModal() {
-  const versions = (state.versions || []).slice().reverse();
-  const currentVer = versions[0]?.version;
+/* Version history: newest-first list on the left, full detail of the selected version on the right */
 
-  const cols = [
-    { key: "version", label: "Version", width: "16%" },
-    { key: "publishedAt", label: "Published Date", width: "22%" },
-    { key: "publishedBy", label: "Author", width: "22%" },
-    { key: "note", label: "Deployment Notes", width: "26%" },
-    { key: "action", label: "Action", width: "14%", align: "right" },
-  ];
+const VH_IGNORED_KEYS = new Set(["_id", "key", "updatedAt", "currentEditLanguage", "previewLanguage"]);
+const VH_MAX_CHANGES = 60;
+let historySelected = null;
 
-  const rows = versions.map(v => [
-    `<b>v${v.version}</b> ${v.version === currentVer ? `<span class="cc-badge ok" style="margin-left:4px;">Live</span>` : `<span class="cc-badge" style="margin-left:4px;">Archived</span>`}`,
-    `<span class="cell-mono" style="font-size:11.5px;color:var(--text-2);">${safe(dateLabel(v.publishedAt))}</span>`,
-    `<span class="cell-truncate" title="${safe(v.publishedBy || "Platform Administrator")}">${safe(v.publishedBy || "Platform Administrator")}</span>`,
-    `<span class="cell-truncate" style="color:var(--text-3);" title="${safe(v.note || "Standard configuration update")}">${safe(v.note || "Standard configuration update")}</span>`,
-    v.version !== currentVer ? `<button class="btn sm" data-act="cc-restore-version" data-arg="${v.version}" title="Restore this configuration to draft">Restore</button>` : `<span class="dim" style="font-size:12px;">Active</span>`,
-  ]);
+function vhHumanize(segment) {
+  const text = String(segment);
+  if (!/^[a-z][A-Za-z0-9]*$/.test(text)) return text;
+  const words = text.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase();
+  return (words.charAt(0).toUpperCase() + words.slice(1)).replace(/\b(iab|url|gdpr|ccpa|tcf|gpc)\b/gi, m => m.toUpperCase());
+}
 
-  const body = `
-    <div style="margin-bottom:8px;">
-      <span class="sub" style="font-size:12px;color:var(--text-3);">Audit timeline of all published banner iterations with one-click revision rollback.</span>
+// Flattens a banner config to { "Regions › USA › Validity days": value } so two versions can be compared
+function vhFlatten(value, path, out) {
+  if (Array.isArray(value)) {
+    if (value.every(item => item === null || typeof item !== "object")) {
+      out[path.join(" › ")] = value;
+    } else {
+      value.forEach((item, i) => vhFlatten(item, path.concat(String(item?.name ?? item?.id ?? i + 1)), out));
+    }
+    return out;
+  }
+  if (value && typeof value === "object") {
+    Object.keys(value).forEach(k => {
+      if (!VH_IGNORED_KEYS.has(k)) vhFlatten(value[k], path.concat(vhHumanize(k)), out);
+    });
+    return out;
+  }
+  out[path.join(" › ")] = value;
+  return out;
+}
+
+function vhDiff(before, after) {
+  const a = vhFlatten(before || {}, [], {});
+  const b = vhFlatten(after || {}, [], {});
+  const changes = [];
+  new Set([...Object.keys(a), ...Object.keys(b)]).forEach(path => {
+    if (JSON.stringify(a[path]) === JSON.stringify(b[path])) return;
+    const kind = !(path in a) ? "added" : !(path in b) ? "removed" : "changed";
+    changes.push({ path, kind, before: a[path], after: b[path] });
+  });
+  return changes;
+}
+
+function vhValue(value) {
+  if (value === undefined || value === null || value === "") return `<span class="cc-vh-empty">Not set</span>`;
+  if (typeof value === "boolean") return value ? "On" : "Off";
+  if (Array.isArray(value)) return value.length ? safe(value.join(", ")) : `<span class="cc-vh-empty">None</span>`;
+  const text = String(value);
+  const swatch = /^#[0-9a-f]{3,8}$/i.test(text) ? `<i class="cc-vh-swatch" style="background:${safe(text)}"></i>` : "";
+  return swatch + safe(text);
+}
+
+function vhChangeRow(change) {
+  const kindLabel = { added: "Added", removed: "Removed", changed: "Changed" }[change.kind];
+  let values;
+  if (Array.isArray(change.before) && Array.isArray(change.after)) {
+    const added = change.after.filter(item => !change.before.includes(item));
+    const removed = change.before.filter(item => !change.after.includes(item));
+    values = added.length || removed.length
+      ? `${added.map(item => `<span class="cc-vh-new">+ ${safe(String(item))}</span>`).join("")}${removed.map(item => `<span class="cc-vh-old">− ${safe(String(item))}</span>`).join("")}`
+      : `<span class="cc-vh-new">Order changed</span>`;
+  } else if (change.kind === "added") {
+    values = `<span class="cc-vh-new">${vhValue(change.after)}</span>`;
+  } else if (change.kind === "removed") {
+    values = `<span class="cc-vh-old">${vhValue(change.before)}</span>`;
+  } else {
+    values = `<span class="cc-vh-old">${vhValue(change.before)}</span><span class="cc-vh-arrow" aria-label="changed to">→</span><span class="cc-vh-new">${vhValue(change.after)}</span>`;
+  }
+  return `<li class="cc-vh-change">
+    <div class="cc-vh-change-path"><span class="cc-vh-kind ${change.kind}">${kindLabel}</span>${safe(change.path)}</div>
+    <div class="cc-vh-change-vals">${values}</div>
+  </li>`;
+}
+
+function vhSnapshot(config) {
+  const cfg = config || {};
+  const languages = cfg.enabledLanguages || [];
+  const regionRows = Object.entries(cfg.regions || {}).map(([name, region]) => `<tr>
+      <td><b>${safe(name)}</b></td>
+      <td>${region?.enabled !== false ? `<span class="cc-badge ok">Enabled</span>` : `<span class="cc-badge">Disabled</span>`}</td>
+      <td>${safe(region?.regulation || "—")}</td>
+      <td>${region?.validityDays ? `${safe(String(region.validityDays))} days` : "—"}</td>
+      <td>${safe((region?.actions || []).join(", ") || "—")}</td>
+    </tr>`).join("");
+
+  return `<dl class="cc-vh-facts">
+      <div><dt>Banner title</dt><dd>${vhValue(cfg.title)}</dd></div>
+      <div><dt>Layout</dt><dd>${vhValue(cfg.layout)}</dd></div>
+      <div><dt>Theme</dt><dd>${vhValue(cfg.theme)}</dd></div>
+      <div><dt>Accent</dt><dd>${vhValue(cfg.accent)}</dd></div>
+      <div><dt>Preference center</dt><dd>${vhValue(cfg.preference?.layout)}</dd></div>
+      <div><dt>Languages (${languages.length})</dt><dd>${vhValue(languages)}</dd></div>
+    </dl>
+    ${regionRows ? `<div class="cc-vh-table-wrap"><table class="cc-vh-table">
+      <thead><tr><th>Region</th><th>Status</th><th>Regulation</th><th>Consent validity</th><th>Banner actions</th></tr></thead>
+      <tbody>${regionRows}</tbody>
+    </table></div>` : ""}`;
+}
+
+function vhDetail(versions, selected, liveVer) {
+  const index = versions.findIndex(v => v.version === selected);
+  const version = versions[index];
+  if (!version) return `<div class="cc-vh-blank">Select a version to see its details.</div>`;
+  const previous = versions[index + 1]; // list is newest first
+  const isLive = version.version === liveVer;
+  const changes = previous ? vhDiff(previous.config, version.config) : [];
+  const shown = changes.slice(0, VH_MAX_CHANGES);
+
+  const changesBlock = !previous
+    ? `<div class="cc-vh-blank">This is the first published version, so there is nothing earlier to compare it with.</div>`
+    : !changes.length
+      ? `<div class="cc-vh-blank">No configuration changes from v${previous.version}. This version was republished as is.</div>`
+      : `<ul class="cc-vh-changes">${shown.map(vhChangeRow).join("")}</ul>
+         ${changes.length > shown.length ? `<div class="cc-vh-more">and ${changes.length - shown.length} more changes</div>` : ""}`;
+
+  return `<div class="cc-vh-detail-head">
+      <div>
+        <h3>Version ${version.version} ${isLive ? `<span class="cc-badge ok">Live</span>` : `<span class="cc-badge">Archived</span>`}</h3>
+        <div class="cc-vh-detail-sub">Published ${safe(dateLabel(version.publishedAt))} · ${safe(getRelativeTime(version.publishedAt))}</div>
+      </div>
+      ${isLive
+        ? `<span class="cc-vh-live-note">Serving visitors now</span>`
+        : `<button class="btn sm t" data-act="cc-restore-version" data-arg="${version.version}" title="Copy this version into the working draft">Restore to draft</button>`}
     </div>
-    ${runtime.table(cols, rows, {
-      id: "cc-banner-history-table",
-      className: "cc-history-table",
-      stickyHeader: true,
-      maxHeight: "360px",
-      emptyText: "No past publications recorded.",
-    })}
-    <div class="cc-note" style="margin-top:12px;">Restoring a past version creates a new working draft with that configuration without overwriting live traffic until published.</div>
-  `;
 
-  runtime.modal("Banner Publication History", "Audit timeline and version rollback", body, `<button class="btn" data-act="close">Close</button>`, "drawer-wide");
+    <dl class="cc-vh-facts">
+      <div><dt>Published by</dt><dd>${safe(version.publishedBy || "Platform Administrator")}</dd></div>
+      <div><dt>Changes</dt><dd>${previous ? `${changes.length} since v${previous.version}` : "Initial version"}</dd></div>
+    </dl>
+
+    <section class="cc-vh-section">
+      <h4>Release notes</h4>
+      <p class="cc-vh-notes">${safe(version.note || "No release notes were added for this version.")}</p>
+    </section>
+
+    <section class="cc-vh-section">
+      <h4>${previous ? `What changed since v${previous.version}` : "What changed"}</h4>
+      ${changesBlock}
+    </section>
+
+    <section class="cc-vh-section">
+      <h4>Configuration in this version</h4>
+      ${vhSnapshot(version.config)}
+    </section>
+
+    ${isLive ? "" : `<div class="cc-note">Restoring copies this version into your working draft. Visitors keep seeing v${liveVer} until you publish again.</div>`}`;
+}
+
+function showPublishHistoryModal(selectedArg) {
+  const versions = (state.versions || []).slice().sort((a, b) => b.version - a.version);
+  const liveVer = versions[0]?.version;
+  const asked = selectedArg != null && selectedArg !== "" ? Number(selectedArg) : null;
+  const open = document.querySelector(".cc-vh");
+
+  // Picking a version inside the open modal: swap the detail pane, keep the list scroll position
+  if (open && asked != null && versions.some(v => v.version === asked)) {
+    historySelected = asked;
+    open.querySelectorAll(".cc-vh-item").forEach(item => {
+      const active = item.getAttribute("data-arg") === String(asked);
+      item.classList.toggle("active", active);
+      item.setAttribute("aria-current", active ? "true" : "false");
+    });
+    const detail = open.querySelector(".cc-vh-detail");
+    detail.innerHTML = vhDetail(versions, asked, liveVer);
+    detail.scrollTop = 0;
+    return;
+  }
+
+  historySelected = versions.some(v => v.version === asked) ? asked : liveVer;
+
+  if (!versions.length) {
+    runtime.modal("Banner Publication History", "Version history", `<div class="cc-vh-blank">Nothing has been published yet. Publish the banner to create version 1.</div>`, `<button class="btn" data-act="close">Close</button>`);
+    return;
+  }
+
+  const items = versions.map((v, i) => {
+    const previous = versions[i + 1];
+    const count = previous ? vhDiff(previous.config, v.config).length : null;
+    const active = v.version === historySelected;
+    return `<li>
+      <button class="cc-vh-item ${active ? "active" : ""}" data-act="cc-open-publish-history" data-arg="${v.version}" aria-current="${active ? "true" : "false"}">
+        <span class="cc-vh-item-top">
+          <b>v${v.version}</b>
+          ${v.version === liveVer ? `<span class="cc-badge ok">Live</span>` : ""}
+          <span class="cc-vh-item-time" title="${safe(dateLabel(v.publishedAt))}">${safe(getRelativeTime(v.publishedAt))}</span>
+        </span>
+        <span class="cc-vh-item-note">${safe(v.note || "No release notes")}</span>
+        <span class="cc-vh-item-meta">${safe(v.publishedBy || "Platform Administrator")} · ${count === null ? "Initial version" : `${count} change${count === 1 ? "" : "s"}`}</span>
+      </button>
+    </li>`;
+  }).join("");
+
+  const body = `<div class="cc-vh">
+    <nav class="cc-vh-list" aria-label="Published versions">
+      <div class="cc-vh-list-head">${versions.length} version${versions.length === 1 ? "" : "s"} · newest first</div>
+      <ol>${items}</ol>
+    </nav>
+    <div class="cc-vh-detail">${vhDetail(versions, historySelected, liveVer)}</div>
+  </div>`;
+
+  runtime.modal("Banner Publication History", `v${liveVer} is live`, body, `<button class="btn" data-act="close">Close</button>`, "cc-vh-modal");
 }
 
 /* ========================================================================= */
