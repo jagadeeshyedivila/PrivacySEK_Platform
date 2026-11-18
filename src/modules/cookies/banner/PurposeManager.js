@@ -55,7 +55,7 @@ export function createPurposeManager(context) {
       <div class="cc-pm-list">
         ${purposes.map(p => `<div class="cc-pm-list-row ${shown(p) ? "" : "is-hidden"}" data-purpose="${safe(p.id)}">
           <div class="cc-pm-list-main">
-            <div class="cc-pm-list-name"><strong>${safe(p.name)}</strong> ${modelBadge(p)}</div>
+            <div class="cc-pm-list-name"><strong>${safe(p.name)}</strong> </div>
             <small>${safe(p.description || "")}</small>
           </div>
           <div class="cc-pm-list-actions">
