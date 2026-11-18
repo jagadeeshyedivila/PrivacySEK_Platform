@@ -12,6 +12,7 @@ export const CONFIG_NAV_SECTIONS = [
   ["config", "Config", "gear"],
   ["language", "Language", "globe"],
   ["content", "Content", "doc"],
+  ["branding", "Branding", "brush"],
   ["layout", "Layout", "layout"],
   ["purposes", "Purposes", "shield"],
   ["frequency", "Display Frequency", "clock"],

@@ -102,6 +102,9 @@ cookieRouter.post('/categories', async (req, res) => {
       return res.status(409).json({ error: `Category with ID '${cleanId}' already exists.` });
     }
 
+    // Purpose fields (see src/modules/cookies/purposeModel.js); missing ones are filled in on the client
+    const list = v => (Array.isArray(v) ? v : []);
+    const { legalBasis, dataCollected, regions, googleSignals, iabPurposes, saleOrShare } = req.body;
     const newCategory = {
       id: cleanId,
       name: name.trim(),
@@ -109,6 +112,12 @@ cookieRouter.post('/categories', async (req, res) => {
       required: Boolean(required),
       defaultState: Boolean(defaultState),
       showInPref: Boolean(showInPref),
+      ...(legalBasis ? { legalBasis: String(legalBasis) } : {}),
+      ...(dataCollected ? { dataCollected: list(dataCollected).map(String) } : {}),
+      ...(regions ? { regions: list(regions).map(String) } : {}),
+      ...(googleSignals ? { googleSignals: list(googleSignals).map(String) } : {}),
+      ...(iabPurposes ? { iabPurposes: list(iabPurposes).map(Number).filter(Number.isInteger) } : {}),
+      ...(saleOrShare !== undefined ? { saleOrShare: Boolean(saleOrShare) } : {}),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };

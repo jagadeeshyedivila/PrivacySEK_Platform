@@ -1,4 +1,6 @@
-import { childModeOf } from "../cookieData.js";
+import { childModeOf, brandingOf, linksOf, FONT_OPTIONS } from "../cookieData.js";
+import { preferenceLayoutOf } from "./PreferenceCenterRenderer.js";
+import { createPurposeManager } from "./PurposeManager.js";
 
 export function createBannerSectionsRenderer(context) {
   const {
@@ -7,6 +9,7 @@ export function createBannerSectionsRenderer(context) {
     createDefaultBannerConfig, resetCookieDemoState, saveCookieDemoState,
     safe, dateLabel, dateOnly, isoNow, clone, getRelativeTime, getActiveTranslations,
   } = context;
+  const purposeManager = createPurposeManager(context);
 
 function renderConfigSectionForm() {
   const draft = state.draft;
@@ -125,14 +128,6 @@ function renderConfigSectionForm() {
 
         <div class="cc-toggle-row">
           <div class="cc-toggle-info">
-            <strong>Show PrivacySEK Watermark</strong>
-            <small>Displays "Protected by PrivacySEK" badge on banner and preference modal</small>
-          </div>
-          <button class="cc-switch" type="button" role="switch" aria-checked="${Boolean(draft.config.showWatermark)}" data-act="cc-toggle-watermark"></button>
-        </div>
-
-        <div class="cc-toggle-row">
-          <div class="cc-toggle-info">
             <strong>Show Disabled / Reject All Button</strong>
             <small>Offers an explicit one-click button to reject all non-essential cookies</small>
           </div>
@@ -146,9 +141,32 @@ function renderConfigSectionForm() {
           </div>
           <button class="cc-switch" type="button" role="switch" aria-checked="${Boolean(draft.config.showCloseButton)}" data-act="cc-toggle-close-btn"></button>
         </div>
+
+        <div class="cc-toggle-row">
+          <div class="cc-toggle-info">
+            <strong>Dim the page behind the banner</strong>
+            <small>Darkens the website until the visitor makes a choice, so the banner cannot be missed</small>
+          </div>
+          <button class="cc-switch" type="button" role="switch" aria-checked="${Boolean(draft.config.backdrop)}" data-act="cc-draft-toggle" data-arg="config.backdrop"></button>
+        </div>
+
+        <div class="cc-toggle-row">
+          <div class="cc-toggle-info">
+            <strong>Enable revisit badge</strong>
+            <small>After choosing, visitors get a small floating button that reopens the Preference Center. Position and label are in Display Frequency.</small>
+          </div>
+          <button class="cc-switch" type="button" role="switch" aria-checked="${Boolean(draft.config.badge?.show)}" aria-label="Enable revisit badge" data-act="cc-toggle-badge-show"></button>
+        </div>
       </div>
 
       <div class="g g2" style="margin-top:6px;">
+        <div class="field">
+          <label for="cc-cfg-close-action">Closing the banner (✕) means</label>
+          <select id="cc-cfg-close-action" data-act="cc-draft-select" data-path="config.closeAction" ${draft.config.showCloseButton === false ? "disabled" : ""}>
+            <option value="dismiss" ${draft.config.closeAction !== "reject" ? "selected" : ""}>No choice yet (ask again next visit)</option>
+            <option value="reject" ${draft.config.closeAction === "reject" ? "selected" : ""}>Reject optional cookies (same as Disable All)</option>
+          </select>
+        </div>
         <div class="field">
           <label for="cc-cfg-zindex">Banner Z-Index</label>
           <input id="cc-cfg-zindex" type="number" value="${draft.config.zIndex || 9999}" data-input-act="cc-input-zindex">
@@ -289,6 +307,7 @@ function renderContentSectionForm() {
           </div>
         </div>
       </div>
+      ${renderLinksGroup()}
     ` : `
       <div class="cc-form-group">
         <div class="field">
@@ -320,12 +339,117 @@ function renderContentSectionForm() {
   `;
 }
 
+// A switch bound to a draft path (handled by cc-draft-toggle in brandingActions.js)
+function draftSwitch(path, on, label) {
+  return `<button class="cc-switch" type="button" role="switch" aria-checked="${Boolean(on)}" aria-label="${safe(label)}" data-act="cc-draft-toggle" data-arg="${path}"></button>`;
+}
+const toggleRow = (path, on, title, hint) => `<div class="cc-toggle-row">
+  <div class="cc-toggle-info"><strong>${safe(title)}</strong><small>${safe(hint)}</small></div>
+  ${draftSwitch(path, on, title)}
+</div>`;
+// A text box bound to a draft path; updates the preview while typing (cc-draft-input)
+const textField = (id, path, label, value, placeholder = "", type = "text") => `<div class="field">
+  <label for="${id}">${safe(label)}</label>
+  <input id="${id}" type="${type}" value="${safe(value || "")}" placeholder="${safe(placeholder)}" data-input-act="cc-draft-input" data-path="${path}">
+</div>`;
+
+/* Links and contact details on the banner and in the Preference Center */
+function renderLinksGroup() {
+  const links = linksOf(state.draft);
+  return `<div class="cc-form-group">
+    <div class="cc-form-group-title">Links & Contact</div>
+    <div style="display:grid;gap:8px;">
+      ${toggleRow("links.showPrivacy", links.showPrivacy, "Show the privacy policy link", "Uses the Privacy Link Label and Privacy Policy URL above")}
+      ${toggleRow("links.newTab", links.newTab, "Open links in a new tab", "Keeps the visitor's page, and the banner, open")}
+      ${toggleRow("links.showCookiePolicy", links.showCookiePolicy, "Show a cookie policy link", "A separate page that lists the cookies the site uses")}
+    </div>
+    <div class="g g2">
+      ${textField("cc-link-cookie-text", "links.cookiePolicyText", "Cookie Policy Link Label", links.cookiePolicyText, "Cookie Policy")}
+      ${textField("cc-link-cookie-url", "links.cookiePolicyUrl", "Cookie Policy URL", links.cookiePolicyUrl, "/cookie-policy")}
+    </div>
+    <div style="display:grid;gap:8px;">
+      ${toggleRow("links.showContact", links.showContact, "Show privacy contact details", "Shown in the Preference Center so visitors can ask questions or withdraw consent (DPDP Grievance Officer, GDPR DPO)")}
+    </div>
+    <div class="g g2">
+      ${textField("cc-link-contact-name", "links.contactName", "Contact Name or Role", links.contactName, "Grievance Officer")}
+      ${textField("cc-link-contact-email", "links.contactEmail", "Contact Email", links.contactEmail, "privacy@example.com", "email")}
+    </div>
+  </div>`;
+}
+
+/* 3.3b BRANDING SECTION */
+
+function renderBrandingSectionForm() {
+  const draft = state.draft;
+  const b = brandingOf(draft);
+  const secondary = draft.secondaryButtonStyle || "outline";
+  return `
+    <div class="cc-form-group">
+      <div class="cc-form-group-title">Logo & Brand</div>
+      <div class="cc-brand-upload">
+        <div class="cc-brand-thumb">${b.logo ? `<img src="${safe(b.logo)}" alt="${safe(b.brandName)} logo">` : `<span aria-hidden="true">🖼</span>`}</div>
+        <div class="cc-brand-upload-b">
+          <b>Logo</b>
+          <small>PNG or JPG, up to 1 MB. Scaled down to fit the banner header.</small>
+          <span class="cc-brand-upload-a">
+            <button class="btn sm" data-act="cc-brand-upload">${b.logo ? "Replace" : "Upload logo"}</button>
+            ${b.logo ? `<button class="btn sm d" data-act="cc-brand-logo-remove">Remove</button>` : ""}
+          </span>
+        </div>
+      </div>
+      ${textField("cc-brand-name", "branding.brandName", "Brand / Company Name", b.brandName, "Your company name")}
+      <div style="display:grid;gap:8px;">
+        ${toggleRow("branding.showLogoOnBanner", b.showLogoOnBanner, "Show the logo on the banner", "Next to the banner title")}
+        ${toggleRow("branding.showLogoInPreference", b.showLogoInPreference, "Show the logo in the Preference Center", "In the header, instead of the PrivacySEK mark")}
+        <div class="cc-toggle-row">
+          <div class="cc-toggle-info">
+            <strong>Show "Powered by PrivacySEK"</strong>
+            <small>Small credit line on the banner and in the Preference Center footer</small>
+          </div>
+          <button class="cc-switch" type="button" role="switch" aria-checked="${Boolean(draft.config.showWatermark)}" data-act="cc-toggle-watermark"></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="cc-form-group">
+      <div class="cc-form-group-title">Buttons</div>
+      <div class="field">
+        <label>Reject / Settings Button Style</label>
+        <div class="g g3">
+          ${[["equal", "Same as Accept"], ["outline", "Outline"], ["subtle", "Text link"]].map(([id, label]) =>
+            `<button class="btn ${secondary === id ? "t" : ""}" data-act="cc-draft-select" data-path="secondaryButtonStyle" data-arg="${id}">${label}</button>`).join("")}
+        </div>
+        <small class="dim" style="display:block;margin-top:4px;font-size:11.5px;">EU regulators expect rejecting to be as easy as accepting. "Same as Accept" gives both buttons equal weight.</small>
+      </div>
+    </div>
+
+    <div class="cc-form-group">
+      <div class="cc-form-group-title">Typography</div>
+      <div class="g g2">
+        <div class="field">
+          <label for="cc-brand-font">Font</label>
+          <select id="cc-brand-font" data-act="cc-draft-select" data-path="branding.fontFamily">
+            ${Object.entries(FONT_OPTIONS).map(([id, f]) => `<option value="${id}" ${b.fontFamily === id ? "selected" : ""}>${safe(f.label)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="field">
+          <label for="cc-brand-scale">Text Size</label>
+          <select id="cc-brand-scale" data-act="cc-draft-select" data-path="branding.fontScale">
+            ${[["sm", "Small"], ["md", "Standard"], ["lg", "Large"]].map(([id, l]) => `<option value="${id}" ${b.fontScale === id ? "selected" : ""}>${l}</option>`).join("")}
+          </select>
+        </div>
+      </div>
+      <small class="dim" style="font-size:11.5px;">Theme, accent colour and corner radius are in Layout.</small>
+    </div>
+  `;
+}
+
 /* 3.4 LAYOUT SECTION */
 
 function renderLayoutSectionForm() {
   const draft = state.draft;
   const currentLayout = draft.layout || "bottom-bar";
-  const currentPrefLayout = draft.preference.layout || "modal";
+  const currentPrefLayout = preferenceLayoutOf(draft);
   const currentTheme = draft.theme || "dark";
   const colors = ["#14B8A6", "#06B6D4", "#6366F1", "#3B82F6", "#F59E0B", "#F43F5E", "#10B981"];
 
@@ -379,13 +503,13 @@ function renderLayoutSectionForm() {
       <div class="cc-form-group-title">Preference Center Layout</div>
       <div class="g g3">
         <button class="btn ${currentPrefLayout === "modal" ? "t" : ""}" data-act="cc-set-pref-layout" data-arg="modal">
-          Modal Dialog
+          Center Modal
         </button>
         <button class="btn ${currentPrefLayout === "drawer" ? "t" : ""}" data-act="cc-set-pref-layout" data-arg="drawer">
-          Slide Drawer
+          Side Drawer
         </button>
-        <button class="btn ${currentPrefLayout === "accordion" ? "t" : ""}" data-act="cc-set-pref-layout" data-arg="accordion">
-          Accordion View
+        <button class="btn ${currentPrefLayout === "sheet" ? "t" : ""}" data-act="cc-set-pref-layout" data-arg="sheet">
+          Bottom Sheet
         </button>
       </div>
     </div>
@@ -458,41 +582,12 @@ function renderChildModeCard() {
   `;
 }
 
+// Child-directed mode, then the purposes (PurposeManager.js): switch on to show in the
+// Preference Center, off to hide. Purposes are not deleted.
 function renderPurposesSectionForm() {
   return `
     ${renderChildModeCard()}
-    <div class="cc-form-group">
-      <div class="cc-form-group-title">
-        <span>Configured Cookie Categories</span>
-        <button class="btn sm" data-act="cc-category-new">+ Add Purpose</button>
-      </div>
-      <p class="dim" style="font-size:12px;margin:0 0 10px;">
-        Define categories presented in the Preference Center. Essential categories are mandatory, while optional categories can be configured for explicit opt-in.
-      </p>
-
-      <div style="display:grid;gap:10px;">
-        ${state.categories.map(cat => {
-          const cookieCount = state.cookies.filter(c => c.category === cat.id).length;
-          return `<div class="cc-toggle-row" style="align-items:flex-start;">
-            <div class="cc-toggle-info" style="flex:1;">
-              <div style="display:flex;align-items:center;gap:8px;">
-                <strong>${safe(cat.name)}</strong>
-                ${cat.required ? `<span class="cc-badge ok">Always Active</span>` : `<span class="cc-badge info">${cat.defaultState ? "Default: Opt-In" : "Default: Opt-Out"}</span>`}
-              </div>
-              <small style="margin-top:4px;">${safe(cat.description)}</small>
-            </div>
-            <div style="display:flex;align-items:center;gap:8px;">
-              ${!cat.required ? `
-                <button class="btn sm" data-act="cc-category-edit" data-arg="${safe(cat.id)}">Edit</button>
-                <button class="btn sm d" data-act="cc-category-delete" data-arg="${safe(cat.id)}">×</button>
-              ` : `
-                <span style="font-size:11px;color:var(--text-3);padding:4px 6px;">Required</span>
-              `}
-            </div>
-          </div>`;
-        }).join("")}
-      </div>
-    </div>
+    ${purposeManager.renderSectionList()}
   `;
 }
 
@@ -650,5 +745,5 @@ function renderVendorsSectionForm() {
 /* 4. LIVE PREVIEW PANE                                                      */
 /* ========================================================================= */
 
-  return { renderConfigSectionForm, renderLanguageSectionForm, renderContentSectionForm, renderLayoutSectionForm, renderPurposesSectionForm, renderFrequencySectionForm, renderVendorsSectionForm };
+  return { renderConfigSectionForm, renderLanguageSectionForm, renderContentSectionForm, renderBrandingSectionForm, renderLayoutSectionForm, renderPurposesSectionForm, renderFrequencySectionForm, renderVendorsSectionForm };
 }

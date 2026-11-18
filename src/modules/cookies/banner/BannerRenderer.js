@@ -9,9 +9,9 @@ export function createBannerRenderer(context) {
     safe, dateLabel, dateOnly, isoNow, clone, getRelativeTime, getActiveTranslations,
   } = context;
   const sections = createBannerSectionsRenderer(context);
-  const { renderConfigSectionForm, renderLanguageSectionForm, renderContentSectionForm, renderLayoutSectionForm, renderPurposesSectionForm, renderFrequencySectionForm, renderVendorsSectionForm } = sections;
+  const { renderConfigSectionForm, renderLanguageSectionForm, renderContentSectionForm, renderBrandingSectionForm, renderLayoutSectionForm, renderPurposesSectionForm, renderFrequencySectionForm, renderVendorsSectionForm } = sections;
   const preview = createBannerPreviewRenderer(context);
-  const { renderLivePreviewPane } = preview;
+  const { renderLivePreviewPane, renderFullscreenPreview } = preview;
 
 function renderTopNavigation(activeTab) {
   return `<nav class="cc-top-nav" aria-label="Cookie Consent Submodules">
@@ -104,6 +104,9 @@ function renderSidebarIcon(icon) {
   if (icon === "doc") {
     return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h5"/></svg>`;
   }
+  if (icon === "brush") {
+    return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18.4 2.6a2 2 0 012.9 2.9L11 15.8 8.2 13z"/><path d="M8.2 13c-2.3 0-4 1.8-4 4 0 1.6-.7 2.6-2.2 3 1 .7 2.5 1 4 1 3.3 0 5-2.2 5-5.2z"/></svg>`;
+  }
   if (icon === "layout") {
     return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>`;
   }
@@ -138,6 +141,10 @@ function renderConfigEditor() {
     title = "Banner & Preference Center Content";
     sub = "Customize notice titles, messages, action buttons, and links";
     content = renderContentSectionForm();
+  } else if (section === "branding") {
+    title = "Branding, Buttons & Typography";
+    sub = "Upload your logo, set the brand name, button style and font for the banner and Preference Center";
+    content = renderBrandingSectionForm();
   } else if (section === "layout") {
     title = "Layout, Position & Styling";
     sub = "Choose display formats, dimensions, color schemes, and rounding";
@@ -221,6 +228,8 @@ function vhValue(value) {
   if (typeof value === "boolean") return value ? "On" : "Off";
   if (Array.isArray(value)) return value.length ? safe(value.join(", ")) : `<span class="cc-vh-empty">None</span>`;
   const text = String(value);
+  // An uploaded logo is a data URL: show the image, not thousands of characters
+  if (/^data:image\//.test(text)) return `<img class="cc-vh-thumb" src="${safe(text)}" alt="Logo">`;
   const swatch = /^#[0-9a-f]{3,8}$/i.test(text) ? `<i class="cc-vh-swatch" style="background:${safe(text)}"></i>` : "";
   return swatch + safe(text);
 }
@@ -387,6 +396,7 @@ function showPublishHistoryModal(selectedArg) {
     renderSidebarIcon,
     renderConfigEditor,
     renderLivePreviewPane,
+    renderFullscreenPreview,
     showPublishHistoryModal
   };
 }

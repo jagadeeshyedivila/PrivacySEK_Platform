@@ -24,7 +24,15 @@ import { registerActions as registerScannerActions } from "./actions/scannerActi
 import { registerActions as registerImplementationActions } from "./actions/implementationActions.js";
 import { registerActions as registerBlockingActions } from "./actions/blockingActions.js";
 import { registerActions as registerRecordDetailsActions } from "./actions/recordDetailsActions.js";
+import { registerActions as registerPreferenceCenterActions } from "./actions/preferenceCenterActions.js";
+import { registerActions as registerPurposeActions } from "./actions/purposeActions.js";
+import { registerActions as registerBrandingActions } from "./actions/brandingActions.js";
+import { registerActions as registerSimulationActions } from "./actions/simulationActions.js";
+import { normalizePurpose, googleConsentState } from "./purposeModel.js";
 import "./cookieConsent.css";
+import "./preferenceCenter.css";
+import "./purposes.css";
+import "./branding.css";
 
 let state;
 let runtime;
@@ -132,10 +140,13 @@ function persist(message) {
 function recordConsent(action, categories = state.visitor.categories, source = "Consent banner") {
   const ageBand = ui.previewAge === "child" ? "under_18" : "18_plus";
   const child = isChildVisitor(state.draft, ui.region || "EEA & UK", ageBand);
-  // A child's receipt can only ever hold Necessary (DPDP s.9(3)), whatever was clicked
+  // Always Active purposes are always granted. A child's receipt can only ever hold those
+  // (DPDP s.9(3)), whatever was clicked.
+  const always = (state.categories || []).filter(c => c.required).map(c => c.id);
+  const forced = Object.fromEntries(always.map(id => [id, true]));
   const stored = child
-    ? Object.fromEntries(Object.keys({ ...categories, necessary: true }).map(k => [k, k === "necessary"]))
-    : { ...categories, necessary: true };
+    ? Object.fromEntries(Object.keys({ ...categories, ...forced }).map(k => [k, always.includes(k)]))
+    : { ...categories, ...forced };
   const newRecord = {
     property: "demo.privacysek.example",
     timestamp: isoNow(),
@@ -149,6 +160,8 @@ function recordConsent(action, categories = state.visitor.categories, source = "
     device: ui.device || "Desktop",
     region: ui.region || "EEA & UK",
   };
+  // Consent Mode v2 state sent to Google tags, from each allowed purpose's signals
+  if (state.draft?.config?.googleConsentMode) newRecord.googleConsent = googleConsentState(state.categories, stored);
   cookieApi.recordConsent(newRecord).then(saved => {
     state.consentRecords.unshift(saved);
   }).catch(() => {
@@ -192,7 +205,8 @@ export function createCookieConsentView(moduleRuntime) {
     cookieApi.getState().then(data => {
       if (data) {
         if (Array.isArray(data.cookies)) state.cookies = data.cookies;
-        if (Array.isArray(data.categories)) state.categories = data.categories;
+        // Purposes saved before the purpose fields existed get their defaults (purposeModel.js)
+        if (Array.isArray(data.categories)) state.categories = data.categories.map(normalizePurpose);
         if (data.draft) state.draft = data.draft;
         if (data.published) state.published = data.published;
         // The API returns newest first; the module reads the last entry as the live version
@@ -247,6 +261,7 @@ export function createCookieConsentView(moduleRuntime) {
             ${renderers.banner.renderConfigEditor()}
             ${renderers.banner.renderLivePreviewPane()}
           </div>
+          ${renderers.banner.renderFullscreenPreview()}
         </div>
       `;
     } else if (activeTopTab === "inventory") {
@@ -281,11 +296,19 @@ export function registerCookieConsentActions(moduleRuntime, ACT) {
   const context = getCookieConsentContext();
   context.renderers = renderers;
   registerBannerActions(context, ACT);
+  // After the banner actions: it wraps the ones that open the preference view
+  registerPreferenceCenterActions(context, ACT);
   registerInventoryActions(context, ACT);
   registerScannerActions(context, ACT);
   registerImplementationActions(context, ACT);
   registerBlockingActions(context, ACT);
   registerRecordDetailsActions(context, ACT);
+  // After inventory actions: it takes over cc-category-new / cc-category-edit
+  registerPurposeActions(context, ACT);
+  // After banner actions: it wraps cc-preview-visitor-close
+  registerBrandingActions(context, ACT);
+  // Last: wraps the final versions of the banner's choice actions
+  registerSimulationActions(context, ACT);
 }
 
 export default function CookieConsent({ html }) {
