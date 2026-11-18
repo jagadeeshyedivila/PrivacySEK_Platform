@@ -63,12 +63,12 @@ test.describe("B. Banner Configuration Functional & Visual Tests", () => {
   test("Banner and Preference Center preview modes toggle correctly", async ({ page }) => {
     // Initially on Banner
     await expect(page.locator(".cc-banner-container")).toBeVisible();
-    await expect(page.locator(".cc-preference-overlay")).toHaveCount(0);
+    await expect(page.locator(".pc-overlay")).toHaveCount(0);
 
-    // Switch to Preference
+    // Switch to Preference: the Cookie Preference Center (tests/preference-center.spec.js)
     await page.click('button.cc-view-toggle-btn[data-arg="preference"]');
-    await expect(page.locator(".cc-preference-overlay")).toBeVisible();
-    await expect(page.locator(".cc-preference-card h3")).toContainText("Privacy Preferences");
+    await expect(page.locator(".pc-overlay")).toBeVisible();
+    await expect(page.locator(".pc-title")).toContainText("Privacy Preference");
 
     // Capture preference center preview screenshot
     await page.screenshot({ path: "test-screenshots/banner-config-preference-center.png" });
@@ -117,9 +117,15 @@ test.describe("B. Banner Configuration Functional & Visual Tests", () => {
     const initialCount = await page.locator(".cc-language-card.enabled").count();
     expect(initialCount).toBeGreaterThan(1); // Multiple languages selected by default
 
-    // Toggle a language on/off
-    await page.locator('.cc-language-card:has-text("Japanese")').click();
-    await expect(page.locator('.cc-language-card:has-text("Japanese")')).toHaveClass(/enabled/);
+    // Toggle a language on/off, then back, so the saved draft ends as it started
+    const japanese = () => page.locator('.cc-language-card:has-text("Japanese")');
+    const wasEnabled = /\benabled\b/.test(await japanese().getAttribute("class"));
+    await japanese().click();
+    if (wasEnabled) await expect(japanese()).not.toHaveClass(/\benabled\b/);
+    else await expect(japanese()).toHaveClass(/\benabled\b/);
+    await japanese().click();
+    if (wasEnabled) await expect(japanese()).toHaveClass(/\benabled\b/);
+    else await expect(japanese()).not.toHaveClass(/\benabled\b/);
   });
 
   test("Save, Publish, and Publish History modals work correctly", async ({ page }) => {

@@ -525,7 +525,8 @@ export function registerActions(context, ACT) {
   };
 
   ACT["cc-preview-visitor-gpc"] = () => {
-    const categories = Object.fromEntries(state.categories.map(c => [c.id, c.id !== "advertising"]));
+    // Do Not Sell / Share turns off every purpose marked as a sale or sharing of data
+    const categories = Object.fromEntries(state.categories.map(c => [c.id, Boolean(c.required) || !c.saleOrShare]));
     state.visitor = { status: "Do Not Sell / Share", categories, updatedAt: isoNow() };
     recordConsent("Do Not Sell", categories, "Global Privacy Control");
     persist("Simulated visitor: Opted out of Sale/Sharing (GPC)");

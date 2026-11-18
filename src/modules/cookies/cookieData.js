@@ -1,3 +1,5 @@
+import { normalizePurpose } from "./purposeModel.js";
+
 const STORAGE_KEY = "privacysek.cookie-consent.demo.v2";
 const DAY = 24 * 60 * 60 * 1000;
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -308,8 +310,46 @@ export function isChildVisitor(draft, region, ageBand) {
   return ageBand === "under_18" || (ageBand === "unknown" && cm.unknownAsChild);
 }
 
+// Brand identity and typography for the banner and the Preference Center
+export const BRANDING_DEFAULT = {
+  logo: "",                    // data URL of the uploaded logo (PNG or JPG, scaled down on upload)
+  brandName: "Aarohan Finance",
+  showLogoOnBanner: true,
+  showLogoInPreference: true,
+  fontFamily: "system",        // key of FONT_OPTIONS
+  fontScale: "md",             // "sm" | "md" | "lg"
+};
+
+// Links and contact details shown to visitors
+export const LINKS_DEFAULT = {
+  showPrivacy: true,
+  newTab: true,
+  showCookiePolicy: true,
+  cookiePolicyText: "Cookie Policy",
+  cookiePolicyUrl: "/cookie-policy",
+  doNotSellLabel: "Do Not Sell or Share My Personal Information",
+  showContact: true,
+  contactName: "Grievance Officer",
+  contactEmail: "privacy@aarohan.example",
+};
+
+export const FONT_OPTIONS = {
+  system: { label: "System default", stack: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif' },
+  inter: { label: "Inter / Helvetica", stack: '"Inter", "Helvetica Neue", Helvetica, Arial, sans-serif' },
+  arial: { label: "Arial", stack: "Arial, Helvetica, sans-serif" },
+  verdana: { label: "Verdana", stack: "Verdana, Geneva, sans-serif" },
+  georgia: { label: "Georgia (serif)", stack: 'Georgia, "Times New Roman", serif' },
+};
+export const FONT_SCALES = { sm: 0.92, md: 1, lg: 1.1 };
+
+// Drafts saved before these settings existed get the defaults
+export const brandingOf = draft => ({ ...BRANDING_DEFAULT, ...((draft && draft.branding) || {}) });
+export const linksOf = draft => ({ ...LINKS_DEFAULT, ...((draft && draft.links) || {}) });
+
 export function createDefaultBannerConfig() {
   return {
+    branding: { ...BRANDING_DEFAULT },
+    links: { ...LINKS_DEFAULT },
     childMode: { ...CHILD_MODE_DEFAULT },
     title: "We Care About Your Privacy",
     description: "By clicking \"Accept All\" you provide consent to our website, sub-domains and all the third parties mentioned in our Privacy and Cookies Preference Setting to store cookies and other technologies to enhance your experience on our website, process your personal data, show you personalized content and advertisements, analyze website efficiency, and improve our marketing efforts.",
@@ -322,8 +362,8 @@ export function createDefaultBannerConfig() {
     layout: "bottom-bar", // "bottom-bar" | "top-bar" | "modal" | "corner-card"
     accent: "#14B8A6",
     borderRadius: "12px",
-    theme: "dark", // "dark" | "light"
-    secondaryButtonStyle: "outline", // "outline" | "subtle"
+    theme: "light", // "dark" | "light" (Preference Center palette)
+    secondaryButtonStyle: "outline", // "equal" (same as Accept) | "outline" | "subtle" (text link)
     // Multiple languages selected by default (no single default)
     enabledLanguages: [
       "English (United States)",
@@ -336,7 +376,7 @@ export function createDefaultBannerConfig() {
     currentEditLanguage: "English (United States)",
     previewLanguage: "English (United States)",
     preference: {
-      layout: "modal", // "modal" | "drawer" | "accordion"
+      layout: "modal", // "modal" | "drawer" | "sheet"
       title: "Privacy Preferences Center",
       description: "When you visit any website, it may store or retrieve information on your browser, mostly in the form of cookies. This information might be about you, your preferences or your device and is mostly used to make the site work as you expect it to. Because we respect your right to privacy, you can choose not to allow some types of cookies.",
       saveLabel: "Save Preferences",
@@ -425,6 +465,8 @@ export function createDefaultBannerConfig() {
       muteCookieNotice: false,
       showDisabledButton: true,
       showCloseButton: true,
+      closeAction: "dismiss",   // "dismiss": no choice, ask again next visit | "reject": same as Disable All
+      backdrop: false,          // dim the page behind the banner until the visitor chooses
       zIndex: 9999,
       googleConsentMode: true,
       googleConsentSignals: {
@@ -499,7 +541,7 @@ function createInitialCookieState() {
     }
   }
 
-  const demoCategories = clone(categories);
+  const demoCategories = clone(categories).map(normalizePurpose);
   const cookies = clone(initialCookies);
   const banner = createDefaultBannerConfig();
 
